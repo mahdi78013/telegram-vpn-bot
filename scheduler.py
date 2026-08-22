@@ -150,7 +150,7 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
     if not destinations:
         return False, "⚠️ هیچ کانال یا گروه مقصدی برای ارسال فعال نیست! لطفاً از بخش «مدیریت کانال‌ها و گروه‌ها» مقصد را فعال کنید."
         
-    source_mode = await get_setting("source_mode", "vip")
+    source_mode = await get_setting("source_mode", "mahsa")
     
     # ------------------ حالت ۱: ارسال کانفیگ‌های اختصاصی و زنده نت ملی VIP ------------------
     if source_mode == "vip":

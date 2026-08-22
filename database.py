@@ -70,6 +70,24 @@ async def init_db():
             )
         """)
 
+        # جدول کانال‌ها و گروه‌های مقصد (چندگانه با قابلیت فعال/غیرفعال‌سازی)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS destinations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT UNIQUE NOT NULL,
+                title TEXT,
+                chat_type TEXT DEFAULT 'channel',
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # مقداردهی کانال پیش‌فرض در مقاصد
+        await db.execute(
+            "INSERT OR IGNORE INTO destinations (chat_id, title, chat_type, is_active) VALUES (?, ?, 'channel', 1)",
+            ("@Internet_azad369", "کانال اصلی اینترنت آزاد")
+        )
+
         # مقداردهی اولیه آمار
         await db.execute("INSERT OR IGNORE INTO stats (id, total_sent) VALUES (1, 0)")
 
@@ -381,3 +399,57 @@ async def export_all_configs() -> List[str]:
         async with db.execute("SELECT raw_config FROM configs") as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
+
+# ----------------- توابع مدیریت مقاصد چندگانه (کانال‌ها و گروه‌ها) -----------------
+
+async def get_active_destinations() -> List[str]:
+    """دریافت آیدی تمامی کانال‌ها و گروه‌های فعال مقصد"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        async with db.execute("SELECT chat_id FROM destinations WHERE is_active = 1") as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+async def get_all_destinations() -> List[Dict[str, Any]]:
+    """دریافت لیست تمام مقاصد ثبت شده (کانال‌ها و گروه‌ها)"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, chat_id, title, chat_type, is_active FROM destinations ORDER BY id ASC") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+async def add_destination(chat_id: str, title: str, chat_type: str = "channel") -> bool:
+    """افزودن یا فعال‌سازی یک کانال یا گروه مقصد"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        try:
+            await db.execute(
+                """
+                INSERT INTO destinations (chat_id, title, chat_type, is_active) 
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, is_active = 1
+                """,
+                (chat_id, title, chat_type)
+            )
+            await db.commit()
+            return True
+        except Exception:
+            return False
+
+async def toggle_destination(dest_id: int) -> Optional[int]:
+    """تغییر وضعیت فعال/غیرفعال بودن یک مقصد"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        async with db.execute("SELECT is_active FROM destinations WHERE id = ?", (dest_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            new_status = 0 if row[0] == 1 else 1
+            
+        await db.execute("UPDATE destinations SET is_active = ? WHERE id = ?", (new_status, dest_id))
+        await db.commit()
+        return new_status
+
+async def delete_destination(dest_id: int) -> bool:
+    """حذف یک مقصد از لیست"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        await db.execute("DELETE FROM destinations WHERE id = ?", (dest_id,))
+        await db.commit()
+        return True

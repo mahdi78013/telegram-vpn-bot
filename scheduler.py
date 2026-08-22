@@ -405,17 +405,32 @@ async def scheduler_loop(bot: Bot):
             loop = asyncio.get_running_loop()
             current_time = loop.time()
             
+            # دریافت زمان‌بندی عمومی تنظیم‌شده توسط ادمین
+            try:
+                global_delay = int(float(settings.get("min_delay", "60")))
+            except Exception:
+                global_delay = 60
+            if global_delay < 10:
+                global_delay = 10
+            
             # بررسی هر کانال/گروه مقصد به صورت کاملاً مستقل
             for d in active_dests:
                 did = d["id"]
                 chat_id = d["chat_id"]
-                interval = int(d.get("interval_seconds") or 900)
+                dest_interval = d.get("interval_seconds")
+                
+                # اگر کاربر در بخش اختصاصی دستی عوض نکرده بود (یا مقدار پیش‌فرض ۲۸۸۰۰/۹۰۰ بود)، از زمان‌بندی انتخابی ادمین استفاده کن
+                if dest_interval and dest_interval not in (900, 28800):
+                    interval = int(dest_interval)
+                else:
+                    interval = global_delay
+                    
                 if interval < 10:
                     interval = 10
                     
                 if chat_id not in _destination_next_send_time:
-                    # نوبت اول: شروع با تاخیر کوتاه ۵ تا ۲۰ ثانیه‌ای
-                    _destination_next_send_time[chat_id] = current_time + random.randint(5, min(20, interval))
+                    # نوبت اول: شروع با تاخیر کوتاه ۳ تا ۱۰ ثانیه‌ای
+                    _destination_next_send_time[chat_id] = current_time + random.randint(3, min(10, interval))
                     
                 if current_time >= _destination_next_send_time[chat_id]:
                     logger.info(f"زمان ارسال به مقصد {chat_id} (فاصله: {interval} ثانیه) فرا رسید.")
@@ -441,7 +456,7 @@ async def scheduler_loop(bot: Bot):
             else:
                 _next_post_time = None
                 
-            await asyncio.sleep(4)
+            await asyncio.sleep(2)
             
         except asyncio.CancelledError:
             logger.info("تسک ارسال خودکار لغو شد.")
@@ -551,6 +566,12 @@ def stop_scheduler():
     if _channel_cleaner_task and not _channel_cleaner_task.done():
         _channel_cleaner_task.cancel()
         _channel_cleaner_task = None
+    _next_post_time = None
+
+def reset_destination_timers():
+    """ریست کردن کش زمان‌بندی برای اعمال آنی سرعت جدید تنظیم‌شده توسط ادمین"""
+    global _destination_next_send_time, _next_post_time
+    _destination_next_send_time = {}
     _next_post_time = None
 
 def get_next_post_countdown() -> Optional[int]:

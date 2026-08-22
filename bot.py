@@ -46,6 +46,9 @@ from database import (
     get_active_source_urls,
     get_all_destinations,
     get_active_destinations,
+    get_destination_by_id,
+    set_destination_interval,
+    update_destination_last_sent,
     add_destination,
     toggle_destination,
     delete_destination,
@@ -72,7 +75,8 @@ logger = logging.getLogger("AutoVpnBot")
     STATE_WAIT_ADD_DEST,
     STATE_WAIT_DELAY,
     STATE_WAIT_TAG,
-) = range(4)
+    STATE_WAIT_DEST_DELAY,
+) = range(5)
 
 def is_admin(user_id: int) -> bool:
     """بررسی ادمین بودن کاربر"""
@@ -496,7 +500,7 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
 # ----------------- بخش مدیریت کانال‌ها و گروه‌های مقصد (Multi-Destination) -----------------
 
 async def build_destinations_keyboard() -> InlineKeyboardMarkup:
-    """ساخت کیبورد مدیریت کانال‌ها و گروه‌ها با دکمه‌های روشن/خاموش"""
+    """ساخت کیبورد مدیریت کانال‌ها و گروه‌ها با نمایش زمان‌بندی تفکیک‌شده"""
     destinations = await get_all_destinations()
     keyboard = []
     
@@ -507,12 +511,17 @@ async def build_destinations_keyboard() -> InlineKeyboardMarkup:
         status_icon = "🟢" if is_active else "🔴"
         chat_type_icon = "📢" if d.get("chat_type") == "channel" else "👥"
         
-        btn_text = f"{status_icon} {chat_type_icon} {title} ({d['chat_id']})"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_toggle_dest_{did}")])
+        interval_sec = d.get("interval_seconds") or 900
+        if interval_sec < 60:
+            int_str = f"{interval_sec}ث"
+        else:
+            int_str = f"{interval_sec // 60}دقیقه"
+            
+        btn_text = f"{status_icon} {chat_type_icon} {title} | ⏱️ {int_str}"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_open_dest_{did}")])
         
     keyboard.append([
         InlineKeyboardButton("➕ افزودن دستی کانال یا گروه", callback_data="btn_start_add_dest"),
-        InlineKeyboardButton("🗑️ حذف یک مقصد", callback_data="btn_show_delete_dest"),
     ])
     keyboard.append([
         InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="btn_main_menu")
@@ -528,22 +537,89 @@ async def cb_manage_destinations(update: Update, context: ContextTypes.DEFAULT_T
     active_count = len([d for d in destinations if d.get("is_active") == 1])
     
     text = (
-        "📢 **مدیریت کانال‌ها و گروه‌های مقصد:**\n\n"
-        "💡 **راهنمای خودکار:**\n"
-        "هر زمان ربات را در هر کانال یا گروهی **ادمین** کنید، به طور خودکار به این لیست اضافه می‌شود!\n\n"
-        f"📌 **تعداد کل مقاصد:** `{len(destinations)}` (🟢 فعال: `{active_count}`)\n\n"
-        "روی هر کدام کلیک کنید تا ارسال به آن **روشن (🟢)** یا **خاموش (🔴)** شود:"
+        "📢 <b>مدیریت کانال‌ها و گروه‌های مقصد (زمان‌بندی تفکیک‌شده):</b>\n\n"
+        "💡 <b>راهنمای هوشمند:</b>\n"
+        "برای هر کانال می‌توانید <b>زمان‌بندی و سرعت ارسال جداگانه</b> تعیین کنید!\n\n"
+        f"📌 <b>تعداد کل مقاصد:</b> <code>{len(destinations)}</code> (🟢 فعال: <code>{active_count}</code>)\n\n"
+        "👇 <b>روی هر کانال/گروه کلیک کنید تا تنظیمات اختصاصی آن باز شود:</b>"
     )
     
     reply_markup = await build_destinations_keyboard()
-    await query.edit_message_text(
-        text=text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+async def cb_open_single_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش پنل اختصاصی تنظیمات و زمان‌بندی یک کانال/گروه خاص"""
+    query = update.callback_query
+    await query.answer()
+    
+    dest_id_str = query.data.replace("btn_open_dest_", "")
+    if not dest_id_str.isdigit():
+        return
+    dest_id = int(dest_id_str)
+    d = await get_destination_by_id(dest_id)
+    if not d:
+        await query.answer("مقصد یافت نشد!", show_alert=True)
+        return
+        
+    title = d.get("title") or d["chat_id"]
+    chat_id = d["chat_id"]
+    chat_type_name = "کانال" if d.get("chat_type") == "channel" else "گروه"
+    is_active = d.get("is_active", 1) == 1
+    status_text = "🟢 فعال و روشن (ارسال انجام می‌شود)" if is_active else "🔴 غیرفعال و خاموش"
+    
+    interval_sec = d.get("interval_seconds") or 900
+    if interval_sec < 60:
+        int_desc = f"هر {interval_sec} ثانیه یک پست"
+    else:
+        int_desc = f"هر {interval_sec // 60} دقیقه یک پست"
+        
+    last_sent = d.get("last_sent_at") or "هنوز ارسالی انجام نشده"
+    
+    text = (
+        f"⚙️ <b>تنظیمات اختصاصی {chat_type_name}:</b>\n\n"
+        f"📌 <b>عنوان:</b> {title}\n"
+        f"🆔 <b>شناسه:</b> <code>{chat_id}</code>\n"
+        f"📂 <b>نوع:</b> {chat_type_name}\n"
+        f"⚡ <b>وضعیت ارسال:</b> {status_text}\n"
+        f"⏱️ <b>زمان‌بندی ارسال این کانال:</b> <b>{int_desc}</b>\n"
+        f"🕒 <b>آخرین ارسال:</b> <code>{last_sent}</code>\n\n"
+        f"👇 از گزینه‌های زیر برای تنظیم استفاده کنید:"
     )
+    
+    toggle_btn_text = "🔴 خاموش کردن این مقصد" if is_active else "🟢 روشن کردن این مقصد"
+    
+    keyboard = [
+        [
+            InlineKeyboardButton(toggle_btn_text, callback_data=f"btn_toggle_dest_{dest_id}"),
+            InlineKeyboardButton("⏱️ تغییر زمان‌بندی این کانال", callback_data=f"btn_set_dest_delay_{dest_id}"),
+        ],
+        [
+            InlineKeyboardButton("📤 ارسال تستی به این مقصد", callback_data=f"btn_test_dest_{dest_id}"),
+            InlineKeyboardButton("🗑️ حذف این مقصد", callback_data=f"btn_del_dest_{dest_id}"),
+        ],
+        [
+            InlineKeyboardButton("🔙 بازگشت به لیست مقاصد", callback_data="btn_manage_destinations")
+        ]
+    ]
+    
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 async def cb_toggle_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تغییر وضعیت فعال/غیرفعال یک مقصد با یک لمس"""
+    """تغییر وضعیت فعال/غیرفعال یک مقصد"""
     query = update.callback_query
     dest_id_str = query.data.replace("btn_toggle_dest_", "")
     
@@ -553,46 +629,27 @@ async def cb_toggle_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg = "روشن شد 🟢" if new_status == 1 else "خاموش شد 🔴"
         await query.answer(f"وضعیت مقصد: {status_msg}")
         
-    reply_markup = await build_destinations_keyboard()
-    destinations = await get_all_destinations()
-    active_count = len([d for d in destinations if d.get("is_active") == 1])
-    
-    text = (
-        "📢 **مدیریت کانال‌ها و گروه‌های مقصد:**\n\n"
-        "💡 **راهنمای خودکار:**\n"
-        "هر زمان ربات را در هر کانال یا گروهی **ادمین** کنید، به طور خودکار به این لیست اضافه می‌شود!\n\n"
-        f"📌 **تعداد کل مقاصد:** `{len(destinations)}` (🟢 فعال: `{active_count}`)\n\n"
-        "روی هر کدام کلیک کنید تا ارسال به آن **روشن (🟢)** یا **خاموش (🔴)** شود:"
-    )
-    
-    try:
-        await query.edit_message_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
-        )
-    except Exception:
-        pass
+        # باز کردن مجدد پنل این کانال
+        query.data = f"btn_open_dest_{dest_id}"
+        await cb_open_single_dest(update, context)
 
-async def cb_show_delete_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش لیست مقاصد جهت حذف"""
+async def cb_test_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال تستی یک بسته سرور به کانال مورد نظر"""
     query = update.callback_query
-    await query.answer()
-    
-    destinations = await get_all_destinations()
-    keyboard = []
-    for d in destinations:
-        did = d["id"]
-        title = d.get("title") or d["chat_id"]
-        keyboard.append([InlineKeyboardButton(f"❌ حذف {title}", callback_data=f"btn_del_dest_{did}")])
-        
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت به لیست مقاصد", callback_data="btn_manage_destinations")])
-    
-    await query.edit_message_text(
-        text="🗑️ **برای حذف، روی کانال یا گروه مورد نظر کلیک کنید:**",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    dest_id_str = query.data.replace("btn_test_dest_", "")
+    if not dest_id_str.isdigit():
+        return
+    dest_id = int(dest_id_str)
+    d = await get_destination_by_id(dest_id)
+    if not d:
+        return
+    chat_id = d["chat_id"]
+    await query.answer(f"در حال ارسال تستی به {chat_id}...")
+    success, msg = await send_single_post(context.bot, target_chat_id=chat_id, is_test=True)
+    if success:
+        await query.answer("✅ پست تستی با موفقیت به کانال ارسال شد!", show_alert=True)
+    else:
+        await query.answer(f"❌ خطا در ارسال: {msg}", show_alert=True)
 
 async def cb_do_delete_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف قطعی یک مقصد"""
@@ -603,12 +660,93 @@ async def cb_do_delete_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await delete_destination(int(dest_id_str))
         await query.answer("مقصد با موفقیت حذف شد! 🗑️", show_alert=True)
         
-    reply_markup = await build_destinations_keyboard()
-    await query.edit_message_text(
-        text="📢 **مدیریت کانال‌ها و گروه‌های مقصد:**\nمقصد مورد نظر حذف شد.",
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
+    await cb_manage_destinations(update, context)
+
+async def cb_start_set_dest_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند تنظیم زمان‌بندی اختصاصی یک کانال"""
+    query = update.callback_query
+    await query.answer()
+    
+    dest_id_str = query.data.replace("btn_set_dest_delay_", "")
+    if not dest_id_str.isdigit():
+        return ConversationHandler.END
+    dest_id = int(dest_id_str)
+    d = await get_destination_by_id(dest_id)
+    if not d:
+        return ConversationHandler.END
+        
+    context.user_data["target_dest_id"] = dest_id
+    title = d.get("title") or d["chat_id"]
+    
+    interval_sec = d.get("interval_seconds") or 900
+    if interval_sec < 60:
+        cur_desc = f"هر {interval_sec} ثانیه"
+    else:
+        cur_desc = f"هر {interval_sec // 60} دقیقه"
+        
+    text = (
+        f"⏱️ <b>تنظیم زمان‌بندی اختصاصی برای کانال «{title}»:</b>\n\n"
+        f"📌 <b>سرعت فعلی این کانال:</b> <code>{cur_desc}</code>\n\n"
+        "💡 <b>می‌توانید به هر یک از روش‌های زیر مقدار دلخواه را ارسال فرمایید:</b>\n\n"
+        "1️⃣ <b>فاصله زمانی (دقیقه):</b>\n"
+        "• عدد <code>1</code> 👈 هر ۱ دقیقه\n"
+        "• عدد <code>5</code> 👈 هر ۵ دقیقه\n"
+        "• عدد <code>15</code> 👈 هر ۱۵ دقیقه\n"
+        "• عدد <code>30</code> 👈 هر ۳۰ دقیقه\n"
+        "• عدد <code>0.5</code> 👈 هر ۳۰ ثانیه\n\n"
+        "2️⃣ <b>تعداد در زمان (نرخ):</b>\n"
+        "• <code>2 در 1</code> 👈 ۲ بار در هر ۱ دقیقه\n"
+        "• <code>3 در 10</code> 👈 ۳ بار در هر ۱۰ دقیقه\n\n"
+        "لطفاً مقدار دلخواه برای این کانال را ارسال کنید:"
     )
+    
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=build_cancel_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+    return STATE_WAIT_DEST_DELAY
+
+async def handle_receive_dest_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ذخیره زمان‌بندی اختصاصی مقصد"""
+    if not is_admin(update.effective_user.id):
+        return ConversationHandler.END
+        
+    dest_id = context.user_data.get("target_dest_id")
+    if not dest_id:
+        return ConversationHandler.END
+        
+    text = update.message.text.strip()
+    total_seconds, desc = parse_schedule_input(text)
+    
+    if total_seconds is None:
+        await update.message.reply_text(
+            f"⚠️ {desc}\nلطفاً مثلاً بفرستید <code>15</code> یا <code>30</code> یا <code>2 در 1</code>:",
+            reply_markup=build_cancel_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+        return STATE_WAIT_DEST_DELAY
+        
+    await set_destination_interval(dest_id, total_seconds)
+    
+    d = await get_destination_by_id(dest_id)
+    title = d.get("title") or d["chat_id"] if d else ""
+    chat_id = d.get("chat_id") if d else None
+    
+    if chat_id:
+        import scheduler
+        loop = asyncio.get_running_loop()
+        scheduler._destination_next_send_time[chat_id] = loop.time() + total_seconds
+        
+    await update.message.reply_text(
+        f"✅ <b>زمان‌بندی اختصاصی کانال «{title}» با موفقیت تنظیم شد!</b>\n\n🕒 <b>برنامه جدید:</b> {desc}",
+        reply_markup=await build_destinations_keyboard(),
+        parse_mode=ParseMode.HTML
+    )
+    return ConversationHandler.END
 
 async def cb_start_add_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند افزودن دستی مقصد"""
@@ -955,12 +1093,26 @@ def main():
         allow_reentry=True,
     )
     
+    # مکالمه تنظیم زمان‌بندی اختصاصی یک کانال یا گروه خاص
+    conv_set_dest_delay = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_start_set_dest_delay, pattern="^btn_set_dest_delay_")],
+        states={
+            STATE_WAIT_DEST_DELAY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_receive_dest_delay),
+            ]
+        },
+        fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
+    )
+    
     # افزودن هندلرها
     application.add_handler(CommandHandler(["start", "admin", "panel"], cmd_start))
     application.add_handler(ChatMemberHandler(cb_chat_member_updated, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(conv_add_dest)
     application.add_handler(conv_set_delay)
     application.add_handler(conv_set_tag)
+    application.add_handler(conv_set_dest_delay)
     
     application.add_handler(CallbackQueryHandler(cb_main_menu, pattern="^btn_main_menu$"))
     application.add_handler(CallbackQueryHandler(cb_toggle_auto_send, pattern="^btn_toggle_auto$"))
@@ -970,8 +1122,9 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_ping_all, pattern="^btn_ping_all$"))
     application.add_handler(CallbackQueryHandler(cb_clear_dead, pattern="^btn_clear_dead$"))
     application.add_handler(CallbackQueryHandler(cb_manage_destinations, pattern="^btn_manage_destinations$"))
+    application.add_handler(CallbackQueryHandler(cb_open_single_dest, pattern="^btn_open_dest_"))
     application.add_handler(CallbackQueryHandler(cb_toggle_dest, pattern="^btn_toggle_dest_"))
-    application.add_handler(CallbackQueryHandler(cb_show_delete_dest, pattern="^btn_show_delete_dest$"))
+    application.add_handler(CallbackQueryHandler(cb_test_dest, pattern="^btn_test_dest_"))
     application.add_handler(CallbackQueryHandler(cb_do_delete_dest, pattern="^btn_del_dest_"))
     
     # هندلرهای کاربری و انتخاب اپراتور

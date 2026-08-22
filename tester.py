@@ -262,3 +262,27 @@ async def ping_configs_batch(
             valid_results.append((cid, False, -1))
             
     return valid_results
+
+async def verify_config_is_completely_dead_10x(
+    config: str,
+    total_tests: int = 10,
+    timeout: float = 1.5,
+    delay_between_tests: float = 0.2
+) -> bool:
+    """
+    تست فوق‌سخت‌گیرانه ۱۰ مرحله‌ای برای تایید قطعی سوختن/فیلتر شدن سرور:
+    سیستم ۱۰ بار پشت سر هم از سرور پینگ می‌گیرد.
+    اگر حتی ۱ بار از ۱۰ بار پینگ موفق دهد، سرور زنده محسوب شده و حذف نمی‌شود (خروجی False).
+    تنها در صورتی که در تمام ۱۰ بار متوالی شکست بخورد، تایید می‌شود که ۱۰۰٪ سوخته است (خروجی True).
+    """
+    for i in range(1, total_tests + 1):
+        is_online, ping_ms = await ping_single_config(config, timeout=timeout)
+        if is_online and ping_ms > 0:
+            # حتی ۱ پینگ موفق یعنی سرور هنوز فعال است و نباید حذف شود
+            return False
+        if i < total_tests:
+            await asyncio.sleep(delay_between_tests)
+            
+    # تمام ۱۰ مرحله شکست خوردند -> سرور به طور قطعی سوخته و فیلتر است
+    return True
+

@@ -202,6 +202,23 @@ def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str
     
     return f"{config}#{flag} {tag}", flag, "custom"
 
+def detect_operator_for_config(raw_config: str, index: int = 0) -> str:
+    """
+    تشخیص هوشمند اپراتور مناسب برای کانفیگ بر اساس ویژگی‌ها یا توزیع متوازن در پست‌ها
+    خروجی: '📡 همراه اول' یا '📱 ایرانسل' یا '📶 مخابرات / رایتل' یا '🌐 تمام اپراتورها'
+    """
+    conf_lower = raw_config.lower()
+    if "mci" in conf_lower or "hamrah" in conf_lower:
+        return "📡 همراه اول"
+    elif "mtn" in conf_lower or "irancell" in conf_lower:
+        return "📱 ایرانسل"
+    elif "wifi" in conf_lower or "mokhaberat" in conf_lower or "tci" in conf_lower or "rightel" in conf_lower:
+        return "📶 مخابرات / رایتل"
+        
+    # توزیع متوازن و منظم بین اپراتورها در بسته‌های چندتایی
+    operators_cycle = ["📡 همراه اول", "📱 ایرانسل", "🌐 تمام اپراتورها", "📶 مخابرات / رایتل"]
+    return operators_cycle[index % len(operators_cycle)]
+
 def extract_configs_from_text(raw_text: str) -> List[str]:
     """
     استخراج تمام کانفیگ‌های معتبر از یک متن طولانی یا محتوای فایل

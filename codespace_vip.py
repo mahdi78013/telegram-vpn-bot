@@ -288,35 +288,40 @@ async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[st
 
 def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     """
-    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده با لینک سابسکریپشن خودکار (Auto-Healing)
+    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده با ۴ سرور چندمسیره + لینک سابسکریپشن خودکار (Auto-Healing)
     """
     if "error" in config_data:
         return config_data["error"]
         
     direct_conf = html.escape(config_data["direct"])
+    mci_conf = html.escape(config_data["mci"])
+    mtn_conf = html.escape(config_data["mtn"])
+    stream_conf = html.escape(config_data["stream"])
+    
     domain = html.escape(config_data.get("domain", ""))
-    updated = html.escape(config_data.get("updated_at", ""))
     tag = config_data.get("tag", "@Internet_azad369")
     sub_link = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
     
     msg = (
-        "🚀 <b>کانفیگ ابری اختصاصی با سیستم خودترمیم (Auto-Healing Sub)</b>\n\n"
+        "🚀 <b>پکیج ۴ سرور ابری اختصاصی با سیستم خودترمیم (Auto-Healing)</b>\n\n"
         f"🌐 <b>دامنه زنده سرور:</b> <code>{domain}</code>\n"
-        "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با پینگ پایدار\n"
-        "📍 <b>موقعیت:</b> 🇩🇪 آلمان (سرور ابری گیگابیتی اختصاصی)\n"
-        "📶 <b>پشتیبانی:</b> همراه اول، ایرانسل، مخابرات، رایتل و وای‌فای\n\n"
-        "-------------------------------------\n"
-        "🔗 <b>لینک سابسکریپشن هوشمند (بدون قطعی و ترمیم دائمی):</b>\n"
+        "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با نهایت سرعت و پینگ سبز\n"
+        "📍 <b>موقعیت:</b> 🇩🇪 آلمان (گیگابیت اختصاصی)\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🔗 <b>لینک سابسکریپشن خودکار (همیشه متصل و بدون قطعی):</b>\n"
         f"<code>{sub_link}</code>\n\n"
-        "💡 <b>راهنمای ۱ بار اتصال در v2rayNG:</b>\n"
-        "1️⃣ لینک سابسکریپشن بالا را کپی کنید.\n"
-        "2️⃣ در برنامه <b>v2rayNG</b> منوی ☰ را باز کرده و <b>Subscription group</b> را بزنید.\n"
-        "3️⃣ علامت <b>+</b> را بزنید، نام را <code>VIP Sub</code> بگذارید و لینک بالا را در <b>Subscription link</b> پیست کنید و تیک تایید را بزنید.\n"
-        "4️⃣ در صفحه اصلی، ۳ نقطه بالای صفحه را زده و <b>Update subscription</b> را انتخاب کنید.\n\n"
-        "✨ <b>از این پس حتی با تغییر سرورها، کانفیگ‌های شما در برنامه به صورت خودکار ترمیم و جایگزین می‌شوند!</b>\n"
-        "-------------------------------------\n\n"
-        "📋 <b>تک‌کانفیگ دستی همین لحظه:</b>\n"
+        "💡 <b>راهنمای ۱ بار ثبت در v2rayNG:</b>\n"
+        "وارد منوی ☰ 👈 <b>Subscription group</b> 👈 علامت <b>+</b> شوید، نام را <code>VIP Sub</code> بگذارید و لینک بالا را الصاق کنید. سپس در صفحه اصلی ۳ نقطه بالا 👈 <b>Update subscription</b> را بزنید.\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📋 <b>کانفیگ‌های دستی تفکیک‌شده همین لحظه:</b>\n\n"
+        "⚡ <b>۱. سرور مستقیم ابری (Anycast Direct):</b>\n"
         f"<pre><code class=\"language-copy\">{direct_conf}</code></pre>\n\n"
+        "📱 <b>۲. مخصوص همراه اول و مخابرات (MCI Clean IP):</b>\n"
+        f"<pre><code class=\"language-copy\">{mci_conf}</code></pre>\n\n"
+        "📶 <b>۳. مخصوص ایرانسل و رایتل (MTN Clean IP):</b>\n"
+        f"<pre><code class=\"language-copy\">{mtn_conf}</code></pre>\n\n"
+        "🔥 <b>۴. سرور توربو دانلود و استریم 4K:</b>\n"
+        f"<pre><code class=\"language-copy\">{stream_conf}</code></pre>\n\n"
         f"👑 <b>{tag}</b>"
     )
     return msg

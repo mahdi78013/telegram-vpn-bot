@@ -18,9 +18,18 @@ from database import (
     update_configs_ping_bulk,
     get_configs_for_health_check,
     get_active_source_urls,
+    record_sent_post,
+    get_uncleaned_posts,
+    mark_post_deleted,
+    get_raw_configs_by_ids,
 )
-from parser import transform_config
-from tester import ping_single_config, ping_configs_batch, verify_config_stability_3x
+from parser import transform_config, detect_operator_for_config
+from tester import (
+    ping_single_config,
+    ping_configs_batch,
+    verify_config_stability_3x,
+    verify_config_is_completely_dead_10x,
+)
 from harvester import harvest_and_store_online_configs
 from proxy_manager import (
     get_current_top_proxies,
@@ -35,6 +44,7 @@ _scheduler_task: Optional[asyncio.Task] = None
 _health_checker_task: Optional[asyncio.Task] = None
 _auto_harvest_task: Optional[asyncio.Task] = None
 _proxy_refresher_task: Optional[asyncio.Task] = None
+_channel_cleaner_task: Optional[asyncio.Task] = None
 _next_post_time: Optional[float] = None
 
 def format_batch_channel_post(
@@ -57,11 +67,13 @@ def format_batch_channel_post(
         escaped_config = html.escape(it.get("config", ""))
         flag = it.get("flag", "🌐")
         ping = it.get("ping", 0)
+        operator = it.get("operator") or detect_operator_for_config(it.get("config", ""), 0)
         ping_line = f"⚡ <b>پینگ پایدار :</b> <code>{ping}ms</code>\n" if ping > 0 else ""
         text = (
             f"🔮 <b>اینترنت آزاد (Free Vpn)</b>\n\n"
             f"👑 <b>کانفیگ فیلترشکن</b>\n"
             f"📍 <b>موقعیت سرور :</b> {flag}\n"
+            f"📶 <b>اپراتور مناسب :</b> {operator}\n"
             f"🔌 <b>وضعیت :</b> متصل تا زمان فیلتر\n"
             f"{ping_line}"
             f"-----------------\n\n"
@@ -84,10 +96,11 @@ def format_batch_channel_post(
         flag = it.get("flag", "🌐")
         proto = it.get("proto", "VLESS").upper()
         ping = it.get("ping", 0)
+        operator = it.get("operator") or detect_operator_for_config(it.get("config", ""), idx - 1)
         ping_str = f" | ⚡ <code>{ping}ms</code>" if ping > 0 else ""
         escaped_conf = html.escape(it.get("config", ""))
         
-        lines.append(f"\n📍 <b>سرور {idx} :</b> {flag} <b>{proto}</b>{ping_str}")
+        lines.append(f"\n📍 <b>سرور {idx} :</b> {flag} <b>{proto}</b>{ping_str} | {operator}")
         lines.append(f"<pre><code class=\"language-copy\">{escaped_conf}</code></pre>")
         
     lines.append("\n-----------------")
@@ -202,7 +215,7 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
     
     for dest in destinations:
         try:
-            await bot.send_message(
+            sent_msg = await bot.send_message(
                 chat_id=dest,
                 text=msg_text,
                 parse_mode=ParseMode.HTML,
@@ -210,6 +223,11 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
                 disable_web_page_preview=True
             )
             success_count += 1
+            if not is_test and sent_msg:
+                try:
+                    await record_sent_post(dest, sent_msg.message_id, [it["id"] for it in verified_items])
+                except Exception as ex:
+                    logger.debug(f"خطا در ثبت پست ارسالی: {ex}")
         except Forbidden as e:
             errors.append(f"{dest}: ربات ادمین نیست")
             logger.error(f"Forbidden error sending post to {dest}: {e}")
@@ -395,9 +413,62 @@ async def auto_refresh_proxies_loop():
             logger.error(f"خطا در حلقه پایش پروکسی: {e}", exc_info=True)
             await asyncio.sleep(60)
 
+async def smart_channel_cleaner_loop(bot: Bot):
+    """
+    تسک پس‌زمینه پاکسازی هوشمند و خودکار پست‌های سوخته از کانال‌ها و گروه‌ها:
+    پست‌های ارسالی را پایش می‌کند و تنها در صورتی که تمام سرورهای پست در ۱۰ مرحله تست پینگ متوالی
+    هیچ پاسخی ندهند و ۱۰۰٪ قطع/فیلتر شده باشند، پست را از کانال حذف می‌کند.
+    """
+    logger.info("موتور پاکسازی خودکار پست‌های سوخته (Smart Channel Cleaner - 10x Ping Validator) فعال شد.")
+    while True:
+        try:
+            # پایش پست‌هایی که حداقل ۶۰ دقیقه از ارسال آنها گذشته است
+            uncleaned_posts = await get_uncleaned_posts(min_age_minutes=60, limit=10)
+            for p in uncleaned_posts:
+                post_id = p["id"]
+                chat_id = p["chat_id"]
+                message_id = p["message_id"]
+                cids_str = p.get("config_ids", "")
+                if not cids_str:
+                    await mark_post_deleted(post_id)
+                    continue
+                    
+                cids = [int(c) for c in cids_str.split(",") if c.isdigit()]
+                raw_configs = await get_raw_configs_by_ids(cids)
+                if not raw_configs:
+                    await mark_post_deleted(post_id)
+                    continue
+                    
+                # بررسی اینکه آیا تمام سرورهای این پست سوخته‌اند (۱۰ تست پینگ متوالی)
+                all_dead = True
+                for conf in raw_configs:
+                    is_dead = await verify_config_is_completely_dead_10x(conf, total_tests=10, timeout=1.5)
+                    if not is_dead:
+                        # حتی اگر ۱ سرور از ۱۰ تلاش پینگ دهد، پست نباید حذف شود
+                        all_dead = False
+                        break
+                        
+                if all_dead:
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                        logger.info(f"🗑️ پست {message_id} در {chat_id} پس از ۱۰ مرحله تست عدم اتصال، با موفقیت از کانال پاکسازی شد.")
+                    except Exception as e:
+                        logger.warning(f"عدم امکان حذف پیام {message_id} در {chat_id}: {e}")
+                    await mark_post_deleted(post_id)
+                else:
+                    logger.info(f"✅ سرورهای پست {message_id} در {chat_id} همچنان متصل هستند و در کانال باقی می‌ماند.")
+                    
+            await asyncio.sleep(600)  # هر ۱۰ دقیقه بررسی مجدد
+        except asyncio.CancelledError:
+            logger.info("تسک پاکسازی پست‌های سوخته لغو شد.")
+            break
+        except Exception as e:
+            logger.error(f"خطا در حلقه پاکسازی پست‌های سوخته: {e}", exc_info=True)
+            await asyncio.sleep(60)
+
 def start_scheduler(bot: Bot) -> bool:
-    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری و پروکسی‌ها"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task
+    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری، پروکسی‌ها و پاکسازی کانال"""
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(scheduler_loop(bot))
     if _health_checker_task is None or _health_checker_task.done():
@@ -406,11 +477,13 @@ def start_scheduler(bot: Bot) -> bool:
         _auto_harvest_task = asyncio.create_task(auto_harvest_loop(bot))
     if _proxy_refresher_task is None or _proxy_refresher_task.done():
         _proxy_refresher_task = asyncio.create_task(auto_refresh_proxies_loop())
+    if _channel_cleaner_task is None or _channel_cleaner_task.done():
+        _channel_cleaner_task = asyncio.create_task(smart_channel_cleaner_loop(bot))
     return True
 
 def stop_scheduler():
     """متوقف کردن تسک‌های پس‌زمینه"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _next_post_time
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _next_post_time
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
         _scheduler_task = None
@@ -423,6 +496,9 @@ def stop_scheduler():
     if _proxy_refresher_task and not _proxy_refresher_task.done():
         _proxy_refresher_task.cancel()
         _proxy_refresher_task = None
+    if _channel_cleaner_task and not _channel_cleaner_task.done():
+        _channel_cleaner_task.cancel()
+        _channel_cleaner_task = None
     _next_post_time = None
 
 def get_next_post_countdown() -> Optional[int]:

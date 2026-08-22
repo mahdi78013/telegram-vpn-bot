@@ -145,6 +145,7 @@ async def init_db():
 
         for key, val in default_settings.items():
             await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
+        await db.execute("UPDATE settings SET value = 'mahsa' WHERE key = 'source_mode'")
 
         # منابع پیش‌فرض (خالص مهسا نت)
         from harvester import DEFAULT_SUBSCRIPTION_SOURCES

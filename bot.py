@@ -1144,6 +1144,11 @@ async def post_init(application: Application):
     """راه‌اندازی دیتابیس و تسک‌های پس‌زمینه"""
     await init_db()
     start_scheduler(application.bot)
+    try:
+        from codespace_vip import setup_and_start_local_node
+        setup_and_start_local_node()
+    except Exception as e:
+        logger.error(f"Error starting local 24/7 cloud node: {e}")
     logger.info("ربات، دیتابیس و زمان‌بند هوشمند با موفقیت راه‌اندازی شدند.")
 
 def main():

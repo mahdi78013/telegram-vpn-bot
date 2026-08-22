@@ -83,9 +83,10 @@ def is_admin(user_id: int) -> bool:
     """بررسی ادمین بودن کاربر"""
     return user_id == ADMIN_ID
 
-def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyboardMarkup:
+def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "vip") -> InlineKeyboardMarkup:
     """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""
     toggle_send_text = "🟢 ارسال خودکار: [روشن]" if auto_send_on else "🔴 ارسال خودکار: [خاموش]"
+    source_toggle_text = "🚀 منبع: [نت ملی VIP]" if source_mode == "vip" else "🌐 منبع: [مهسا نت]"
     
     keyboard = [
         [
@@ -93,7 +94,7 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyb
             InlineKeyboardButton(f"📦 تعداد سرور: [{batch_size} عدد]", callback_data="btn_cycle_batch_size"),
         ],
         [
-            InlineKeyboardButton("🌐 دریافت فوری سرورهای آنلاین", callback_data="btn_harvest_now"),
+            InlineKeyboardButton(f"📡 {source_toggle_text}", callback_data="btn_toggle_source_mode"),
             InlineKeyboardButton("📊 تست پینگ زنده سرورها", callback_data="btn_ping_all"),
         ],
         [
@@ -147,6 +148,8 @@ async def get_main_menu_text() -> str:
     
     auto_send = "فعال 🟢" if settings.get("auto_send", "0") == "1" else "غیرفعال 🔴"
     batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
+    source_title = "🚀 نت ملی VIP (۲۴ ساعته ابری)" if source_mode == "vip" else "🌐 مخازن آنلاین (مهسا نت)"
     
     try:
         raw_min = settings.get("min_delay", str(DEFAULT_MIN_DELAY))
@@ -166,6 +169,7 @@ async def get_main_menu_text() -> str:
     text = (
         "👑 **پنل مدیریت ربات خودکار ارسال VPN**\n\n"
         f"⚡ **وضعیت ارسال خودکار:** {auto_send}\n"
+        f"📡 **منبع ارسال کانال:** {source_title}\n"
         f"📦 **تعداد سرور در هر پست:** `{batch_size}` عدد (دسته‌ای)\n"
         f"📢 **مقاصد فعال (کانال/گروه):** `{len(active_dests)}` مورد از `{len(destinations)}`\n"
         f"⏱️ **سرعت ارسال:** {delay_str}\n"
@@ -219,9 +223,10 @@ async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = await get_all_settings()
     auto_send_on = settings.get("auto_send", "0") == "1"
     batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
     
     menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(auto_send_on, batch_size)
+    reply_markup = build_main_keyboard(auto_send_on, batch_size, source_mode)
     
     try:
         await query.edit_message_text(
@@ -250,8 +255,9 @@ async def cb_toggle_auto_send(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     settings = await get_all_settings()
     batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
     menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(new_status == "1", batch_size)
+    reply_markup = build_main_keyboard(new_status == "1", batch_size, source_mode)
     
     try:
         await query.edit_message_text(
@@ -275,9 +281,40 @@ async def cb_cycle_batch_size(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     settings = await get_all_settings()
     auto_send_on = settings.get("auto_send", "0") == "1"
+    source_mode = settings.get("source_mode", "vip")
     
     menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(auto_send_on, new_size)
+    reply_markup = build_main_keyboard(auto_send_on, new_size, source_mode)
+    
+    try:
+        await query.edit_message_text(
+            text=menu_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception:
+        pass
+
+async def cb_toggle_source_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """سوییچ هوشمند منبع ارسال خودکار کانال بین نت ملی VIP و مخازن آنلاین"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await query.answer("⛔ فقط مخصوص مدیریت است.", show_alert=True)
+        return
+        
+    current = await get_setting("source_mode", "vip")
+    new_mode = "mahsa" if current == "vip" else "vip"
+    await set_setting("source_mode", new_mode)
+    
+    label = "🚀 نت ملی VIP" if new_mode == "vip" else "🌐 مخازن آنلاین مهسا نت"
+    await query.answer(f"منبع ارسال کانال به «{label}» تغییر یافت.")
+    
+    settings = await get_all_settings()
+    auto_send_on = settings.get("auto_send", "0") == "1"
+    batch_size = settings.get("batch_size", "3")
+    menu_text = await get_main_menu_text()
+    reply_markup = build_main_keyboard(auto_send_on, batch_size, new_mode)
     
     try:
         await query.edit_message_text(
@@ -1203,6 +1240,7 @@ def main():
     
     application.add_handler(CallbackQueryHandler(cb_main_menu, pattern="^btn_main_menu$"))
     application.add_handler(CallbackQueryHandler(cb_toggle_auto_send, pattern="^btn_toggle_auto$"))
+    application.add_handler(CallbackQueryHandler(cb_toggle_source_mode, pattern="^btn_toggle_source_mode$"))
     application.add_handler(CallbackQueryHandler(cb_cycle_batch_size, pattern="^btn_cycle_batch_size$"))
     application.add_handler(CallbackQueryHandler(cb_harvest_now, pattern="^btn_harvest_now$"))
     application.add_handler(CallbackQueryHandler(cb_test_send_admin, pattern="^btn_test_send_admin$"))

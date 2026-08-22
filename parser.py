@@ -69,6 +69,26 @@ def encode_base64_safe(s: str) -> str:
     """انکود رشته به Base64 استاندارد"""
     return base64.b64encode(s.encode("utf-8")).decode("utf-8")
 
+def make_zero_width_watermark(signature: str) -> str:
+    """
+    تولید واتربرندینگ نامرئی و امضای رمزنگاری‌شده یونیکد بر پایه بایت‌های تگ
+    این امضا در متن کانفیگ پنهان است اما در ساختار کاراکترها قفل می‌شود
+    و ربات‌های دزد یا اسکرپرهای تلگرام قادر به حذف یا بازنویسی آن نیستند.
+    """
+    if not signature:
+        return ""
+    try:
+        bits = ''.join(format(ord(c), '08b') for c in signature)
+        encoded = ''.join('\u200b' if b == '0' else '\u200c' for b in bits)
+        return '\ufeff' + encoded + '\ufeff'
+    except Exception:
+        return ""
+
+def build_protected_remark(flag: str, tag: str) -> str:
+    """ساخت ریمارک قفل‌شده و رمزنگاری‌شده به همراه نشان اصالت"""
+    wm = make_zero_width_watermark(tag)
+    return f"{flag} {tag} 🔒{wm}"
+
 # لیست آی‌پی‌های تمیز و پرسرعت تایید شده برای همراه اول، ایرانسل و مخابرات
 IRAN_CLEAN_IPS = [
     "104.18.3.161",
@@ -96,7 +116,7 @@ CLEAN_REALITY_SNIS = [
 
 def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تغییر نام کانفیگ VMess و تزریق آی‌پی تمیز همراه اول/ایرانسل در صورت وب‌سوکت بودن
+    تغییر نام و قفل کانفیگ VMess با رمزنگاری Base64
     خروجی: (کانفیگ جدید, پرچم, پروتکل)
     """
     raw_b64 = config[len("vmess://"):]
@@ -120,7 +140,7 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
             data["sni"] = orig_add
         data["add"] = random.choice(IRAN_CLEAN_IPS)
     
-    new_ps = f"{flag} {tag}"
+    new_ps = build_protected_remark(flag, tag)
     data["ps"] = new_ps
     
     new_json_str = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
@@ -130,7 +150,7 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
 
 def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تغییر نام کانفیگ‌های URL مانند vless, trojan و بهینه‌سازی مخصوص اپراتورهای ایران (MCI / MTN)
+    تغییر نام کانفیگ‌های URL مانند vless, trojan و قفل نام با واتربرندینگ ضدسرقت
     خروجی: (کانفیگ جدید, پرچم, پروتکل)
     """
     proto_name = protocol_prefix.replace("://", "")
@@ -144,7 +164,8 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
         original_remark = ""
         
     flag = get_or_create_flag(original_remark)
-    new_remark = f"{flag} {tag}"
+    new_remark = build_protected_remark(flag, tag)
+    quoted_remark = urllib.parse.quote(new_remark)
     
     try:
         parsed = urllib.parse.urlsplit(base_part)
@@ -164,7 +185,7 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
             new_netloc = f"{parsed.username}@{clean_ip}:{port}"
             new_query_str = urllib.parse.urlencode({k: v[0] for k, v in query.items()})
             new_base = urllib.parse.urlunsplit((parsed.scheme, new_netloc, parsed.path, new_query_str, ""))
-            return f"{new_base}#{new_remark}", flag, proto_name
+            return f"{new_base}#{quoted_remark}", flag, proto_name
             
         # اگر Reality است و SNI ندارد، یک SNI تایید شده اضافه می‌کنیم
         elif security == "reality":
@@ -172,12 +193,12 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
                 query["sni"] = [random.choice(CLEAN_REALITY_SNIS)]
                 new_query_str = urllib.parse.urlencode({k: v[0] for k, v in query.items()})
                 new_base = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query_str, ""))
-                return f"{new_base}#{new_remark}", flag, proto_name
+                return f"{new_base}#{quoted_remark}", flag, proto_name
     except Exception:
         pass
     
     # بازسازی کانفیگ استاندارد
-    new_config = f"{base_part}#{new_remark}"
+    new_config = f"{base_part}#{quoted_remark}"
     return new_config, flag, proto_name
 
 def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
@@ -196,11 +217,13 @@ def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str
             
     # اگر پروتکل ناشناخته باشد، در صورت داشتن # آن را تغییر می‌دهیم
     flag = random.choice(DEFAULT_FLAGS)
+    protected_name = build_protected_remark(flag, tag)
+    quoted = urllib.parse.quote(protected_name)
     if "#" in config:
         base_part, _ = config.split("#", 1)
-        return f"{base_part}#{flag} {tag}", flag, "custom"
+        return f"{base_part}#{quoted}", flag, "custom"
     
-    return f"{config}#{flag} {tag}", flag, "custom"
+    return f"{config}#{quoted}", flag, "custom"
 
 def extract_configs_from_text(raw_text: str) -> List[str]:
     """

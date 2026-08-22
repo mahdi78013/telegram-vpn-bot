@@ -1048,7 +1048,52 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
         return None, "فرمت وارد شده صحیح نیست."
 
 async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش لیست کانال‌ها جهت انتخاب و تنظیم زمان‌بندی اختصاصی هر کدام"""
+    """شروع فرآیند تنظیم زمان‌بندی و سرعت ارسال"""
+    query = update.callback_query
+    await query.answer()
+    
+    settings = await get_all_settings()
+    raw_min = settings.get("min_delay", str(DEFAULT_MIN_DELAY))
+    try:
+        min_d_sec = int(float(raw_min))
+        if min_d_sec < 60:
+            delay_str = f"هر {min_d_sec} ثانیه"
+        else:
+            delay_str = f"هر {min_d_sec // 60} دقیقه"
+    except Exception:
+        delay_str = "هر 1 دقیقه"
+        
+    text = (
+        "⏱️ <b>تنظیم سرعت و زمان‌بندی ارسال خودکار:</b>\n\n"
+        f"🕒 <b>سرعت فعلی ارسال:</b> <code>{delay_str}</code>\n\n"
+        "💡 <b>می‌توانید به هر یک از روش‌های زیر زمان دلخواه را ارسال فرمایید:</b>\n"
+        "• <code>1</code> 👈 هر ۱ دقیقه یکبار\n"
+        "• <code>5</code> 👈 هر ۵ دقیقه یکبار\n"
+        "• <code>15</code> 👈 هر ۱۵ دقیقه یکبار\n"
+        "• <code>1 ساعت</code> 👈 هر ۱ ساعت یکبار\n"
+        "• <code>4 ساعت</code> 👈 هر ۴ ساعت یکبار\n"
+        "• <code>روزی 3</code> 👈 ۳ بار در روز (هر ۸ ساعت)\n"
+        "• <code>روزی 1</code> 👈 ۱ بار در روز (هر ۲۴ ساعت)\n\n"
+        "👇 <b>لطفاً مقدار زمان جدید را تایپ و ارسال کنید:</b>"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("⚙️ تنظیم تفکیک‌شده برای هر کانال", callback_data="btn_manage_dest_delays")],
+        [InlineKeyboardButton("❌ انصراف و بازگشت", callback_data="btn_cancel")]
+    ]
+    
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+    return STATE_WAIT_DELAY
+
+async def cb_manage_dest_delays(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش لیست کانال‌ها جهت تنظیم زمان‌بندی تفکیک‌شده"""
     query = update.callback_query
     await query.answer()
     
@@ -1066,15 +1111,12 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_set_dest_delay_{did}")])
         
     keyboard.append([
-        InlineKeyboardButton("➕ افزودن کانال جدید", callback_data="btn_start_add_dest"),
         InlineKeyboardButton("🔙 بازگشت به منو", callback_data="btn_main_menu"),
     ])
     
     text = (
-        "⏱️ <b>تنظیم زمان‌بندی و سرعت ارسال خودکار:</b>\n\n"
-        "💡 برای هر کانال یا گروه می‌توانید سرعت ارسال کاملاً جداگانه تعریف کنید.\n"
-        "<i>(پیش‌فرض: روزی ۳ بار / هر ۸ ساعت یک پست)</i>\n\n"
-        "👇 <b>لطفاً کانال یا گروهی که می‌خواهید زمان‌بندی آن را تغییر دهید انتخاب کنید:</b>"
+        "⚙️ <b>تنظیم زمان‌بندی تفکیک‌شده برای هر کانال:</b>\n\n"
+        "👇 لطفاً کانال مورد نظر را برای تنظیم سرعت اختصاصی انتخاب کنید:"
     )
     
     try:
@@ -1083,17 +1125,8 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML
         )
-    except Exception as e:
-        logger.error(f"خطا در ویرایش پیام لیست زمان‌بندی: {e}")
-        try:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ذخیره زمان‌بندی و سرعت جدید"""
@@ -1248,6 +1281,19 @@ def main():
         allow_reentry=True,
     )
     
+    # مکالمه تنظیم زمان‌بندی کلی
+    conv_set_delay = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_start_set_delay, pattern="^btn_set_delay$")],
+        states={
+            STATE_WAIT_DELAY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_receive_delay),
+            ]
+        },
+        fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
+    )
+    
     # مکالمه تنظیم زمان‌بندی اختصاصی یک کانال یا گروه خاص
     conv_set_dest_delay = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_start_set_dest_delay, pattern="^btn_set_dest_delay_")],
@@ -1266,6 +1312,7 @@ def main():
     application.add_handler(ChatMemberHandler(cb_chat_member_updated, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(conv_add_dest)
     application.add_handler(conv_set_tag)
+    application.add_handler(conv_set_delay)
     application.add_handler(conv_set_dest_delay)
     
     application.add_handler(CallbackQueryHandler(cb_main_menu, pattern="^btn_main_menu$"))
@@ -1277,7 +1324,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_admin_codespace_vip, pattern="^btn_codespace_vip$"))
     application.add_handler(CallbackQueryHandler(cb_ping_all, pattern="^btn_ping_all$"))
     application.add_handler(CallbackQueryHandler(cb_clear_dead, pattern="^btn_clear_dead$"))
-    application.add_handler(CallbackQueryHandler(cb_start_set_delay, pattern="^btn_set_delay$"))
+    application.add_handler(CallbackQueryHandler(cb_manage_dest_delays, pattern="^btn_manage_dest_delays$"))
     application.add_handler(CallbackQueryHandler(cb_manage_destinations, pattern="^btn_manage_destinations$"))
     application.add_handler(CallbackQueryHandler(cb_open_single_dest, pattern="^btn_open_dest_"))
     application.add_handler(CallbackQueryHandler(cb_toggle_dest, pattern="^btn_toggle_dest_"))

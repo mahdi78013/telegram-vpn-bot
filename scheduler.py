@@ -268,21 +268,8 @@ async def auto_harvest_loop(bot: Bot):
                 report = await harvest_and_store_online_configs(sources=sources, instant_test_count=60)
                 logger.info(f"دریافت دوره‌ای ابری انجام شد: {report['new_added']} سرور جدید به صف دیتابیس اضافه شد.")
                 
-                # اطلاع به ادمین در صورت اضافه شدن سرورهای جدید
-                if report.get("new_added", 0) > 0:
-                    try:
-                        await bot.send_message(
-                            chat_id=ADMIN_ID,
-                            text=(
-                                "🌐 **گزارش دریافت خودکار از منابع ابری:**\n"
-                                f"📥 دریافت شده از مخازن: `{report['total_fetched']}` عدد\n"
-                                f"➕ سرورهای جدید اضافه شده به صف: `{report['new_added']}` عدد\n"
-                                f"⚠️ سرورهای تکراری: `{report['duplicates']}` عدد\n"
-                                "🔍 تستر ۲۴ ساعته در حال بررسی پینگ تک‌تک آن‌هاست."
-                            )
-                        )
-                    except Exception:
-                        pass
+                # دریافت دوره‌ای بدون مزاحمت پیام در پیوی ادمین
+                pass
                         
             # فاصله بررسی مجدد (به ساعت)
             interval_str = await get_setting("harvest_interval_hours", "1")

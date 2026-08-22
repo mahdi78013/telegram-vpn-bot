@@ -22,6 +22,11 @@ from database import (
 from parser import transform_config
 from tester import ping_single_config, ping_configs_batch, verify_config_stability_3x
 from harvester import harvest_and_store_online_configs
+from proxy_manager import (
+    get_current_top_proxies,
+    format_proxies_text,
+    fetch_and_test_live_proxies,
+)
 
 logger = logging.getLogger("Scheduler")
 
@@ -29,6 +34,7 @@ logger = logging.getLogger("Scheduler")
 _scheduler_task: Optional[asyncio.Task] = None
 _health_checker_task: Optional[asyncio.Task] = None
 _auto_harvest_task: Optional[asyncio.Task] = None
+_proxy_refresher_task: Optional[asyncio.Task] = None
 _next_post_time: Optional[float] = None
 
 def format_batch_channel_post(
@@ -42,6 +48,9 @@ def format_batch_channel_post(
     tag_clean = channel_tag if channel_tag.startswith("@") else f"@{channel_tag}"
     channel_username = tag_clean.replace("@", "")
     channel_url = f"https://t.me/{channel_username}"
+    
+    top_proxies = get_current_top_proxies(3)
+    proxies_section = format_proxies_text(top_proxies)
     
     if len(items) == 1:
         it = items[0]
@@ -57,6 +66,8 @@ def format_batch_channel_post(
             f"{ping_line}"
             f"-----------------\n\n"
             f"<pre><code class=\"language-copy\">{escaped_config}</code></pre>\n\n"
+            f"-----------------\n"
+            f"{proxies_section}\n\n"
             f"👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n\n"
             f"✅ {tag_clean}"
         )
@@ -80,6 +91,7 @@ def format_batch_channel_post(
         lines.append(f"<pre><code class=\"language-copy\">{escaped_conf}</code></pre>")
         
     lines.append("\n-----------------")
+    lines.append(f"{proxies_section}\n")
     lines.append("👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n")
     lines.append(f"✅ {tag_clean}")
     
@@ -369,20 +381,36 @@ async def scheduler_loop(bot: Bot):
             logger.error(f"خطا در حلقه ارسال خودکار: {e}", exc_info=True)
             await asyncio.sleep(15)
 
+async def auto_refresh_proxies_loop():
+    """تسک پس‌زمینه دریافت و پایش مداوم پروکسی‌های پرسرعت تلگرام هر ۳۰ دقیقه"""
+    logger.info("موتور پایش و بروزرسانی خودکار پروکسی‌های MTProto تلگرام فعال شد.")
+    while True:
+        try:
+            await fetch_and_test_live_proxies(limit=40)
+            await asyncio.sleep(1800)  # هر ۳۰ دقیقه
+        except asyncio.CancelledError:
+            logger.info("تسک پایش پروکسی لغو شد.")
+            break
+        except Exception as e:
+            logger.error(f"خطا در حلقه پایش پروکسی: {e}", exc_info=True)
+            await asyncio.sleep(60)
+
 def start_scheduler(bot: Bot) -> bool:
-    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت و دریافت ابری"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task
+    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری و پروکسی‌ها"""
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(scheduler_loop(bot))
     if _health_checker_task is None or _health_checker_task.done():
         _health_checker_task = asyncio.create_task(health_checker_loop())
     if _auto_harvest_task is None or _auto_harvest_task.done():
         _auto_harvest_task = asyncio.create_task(auto_harvest_loop(bot))
+    if _proxy_refresher_task is None or _proxy_refresher_task.done():
+        _proxy_refresher_task = asyncio.create_task(auto_refresh_proxies_loop())
     return True
 
 def stop_scheduler():
     """متوقف کردن تسک‌های پس‌زمینه"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _next_post_time
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _next_post_time
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
         _scheduler_task = None
@@ -392,6 +420,9 @@ def stop_scheduler():
     if _auto_harvest_task and not _auto_harvest_task.done():
         _auto_harvest_task.cancel()
         _auto_harvest_task = None
+    if _proxy_refresher_task and not _proxy_refresher_task.done():
+        _proxy_refresher_task.cancel()
+        _proxy_refresher_task = None
     _next_post_time = None
 
 def get_next_post_countdown() -> Optional[int]:

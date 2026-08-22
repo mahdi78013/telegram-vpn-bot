@@ -171,6 +171,7 @@ def setup_and_start_local_node():
                                             "uuid": "f12abdbd-23a8-414b-a89e-c447be5ba57d",
                                             "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
                                         }, out_f)
+                                    update_subscription_files(current_domain)
                                         
                     # 4. ارسال پکت Keep-Alive به پورت محلی جهت زنده نگه داشتن تونل کلادفلر
                     try:
@@ -189,6 +190,71 @@ def setup_and_start_local_node():
         
     except Exception as e:
         logger.error(f"Error in setup_and_start_local_node: {e}")
+
+SUB_FILE_PATH = os.path.join(os.path.dirname(__file__), "sub.txt")
+
+def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-c447be5ba57d"):
+    """
+    تولید و بروزرسانی خودکار فایل سابسکریپشن آنلاین در مخزن گیت‌هاب جهت ترمیم خودکار کانفیگ‌ها در برنامه کاربر
+    """
+    if not domain:
+        return
+        
+    c_direct = f"vless://{uuid}@{domain}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-Direct"
+    c_mci = f"vless://{uuid}@{FASTEST_MCI_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-MCI"
+    c_mtn = f"vless://{uuid}@{FASTEST_MTN_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-Irancell"
+    c_stream = f"vless://{uuid}@{FASTEST_TURBO_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-4KStream"
+    
+    plain_content = f"{c_direct}\n{c_mci}\n{c_mtn}\n{c_stream}\n"
+    
+    # 1. ذخیره محلی
+    try:
+        with open(SUB_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write(plain_content)
+    except Exception as e:
+        logger.warning(f"Error writing local sub.txt: {e}")
+        
+    # 2. ارسال خودکار به مخزن گیت‌هاب جهت سابسکریپشن سراسری
+    token = os.environ.get("GITHUB_TOKEN") or ""
+    repo = os.environ.get("GITHUB_REPOSITORY") or "mahdi78013/telegram-vpn-bot"
+    if token and repo:
+        try:
+            import base64
+            import urllib.request
+            
+            b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
+            api_url = f"https://api.github.com/repos/{repo}/contents/sub.txt"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "AutoSub-Updater"
+            }
+            sha = ""
+            try:
+                req_get = urllib.request.Request(api_url, headers=headers)
+                with urllib.request.urlopen(req_get, timeout=5) as resp:
+                    d = json.loads(resp.read().decode("utf-8"))
+                    sha = d.get("sha", "")
+            except Exception:
+                pass
+                
+            body_dict = {
+                "message": "Auto-update live self-healing subscription [skip ci]",
+                "content": b64_content,
+            }
+            if sha:
+                body_dict["sha"] = sha
+                
+            req_put = urllib.request.Request(
+                api_url,
+                data=json.dumps(body_dict).encode("utf-8"),
+                headers=headers,
+                method="PUT"
+            )
+            with urllib.request.urlopen(req_put, timeout=8) as r:
+                logger.info("✅ لینک سابسکریپشن هوشمند گیت‌هاب با موفقیت بروزرسانی شد.")
+        except Exception as ex:
+            logger.warning(f"Error pushing sub.txt to GitHub: {ex}")
 
 async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[str, Any]:
     """
@@ -250,7 +316,7 @@ async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[st
 
 def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     """
-    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده برای تک کانفیگ فوق‌سریع VIP
+    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده با لینک سابسکریپشن خودکار (Auto-Healing)
     """
     if "error" in config_data:
         return config_data["error"]
@@ -259,18 +325,26 @@ def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     domain = html.escape(config_data.get("domain", ""))
     updated = html.escape(config_data.get("updated_at", ""))
     tag = config_data.get("tag", "@Internet_azad369")
+    sub_link = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
     
     msg = (
-        "🚀 <b>کانفیگ تک و فوق‌حرفه‌ای نت ملی (Cloud VIP)</b>\n\n"
-        f"🌐 <b>دامنه سرور:</b> <code>{domain}</code>\n"
+        "🚀 <b>کانفیگ ابری اختصاصی با سیستم خودترمیم (Auto-Healing Sub)</b>\n\n"
+        f"🌐 <b>دامنه زنده سرور:</b> <code>{domain}</code>\n"
         "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با پینگ پایدار\n"
         "📍 <b>موقعیت:</b> 🇩🇪 آلمان (سرور ابری گیگابیتی اختصاصی)\n"
-        "📶 <b>اپراتور:</b> ⚡ مناسب تمامی اپراتورها (همراه اول، ایرانسل، وای‌فای)\n"
-        "-------------------------------------\n\n"
-        "📋 <b>کانفیگ مستقیم آماده اتصال:</b>\n"
-        f"<pre><code class=\"language-copy\">{direct_conf}</code></pre>\n\n"
+        "📶 <b>پشتیبانی:</b> همراه اول، ایرانسل، مخابرات، رایتل و وای‌فای\n\n"
         "-------------------------------------\n"
-        "💡 <i>این کانفیگ به صورت خودکار با نهایت سرعت و بدون نیاز به هیچ تنظیم دستی آماده شده است.</i>\n\n"
+        "🔗 <b>لینک سابسکریپشن هوشمند (بدون قطعی و ترمیم دائمی):</b>\n"
+        f"<code>{sub_link}</code>\n\n"
+        "💡 <b>راهنمای ۱ بار اتصال در v2rayNG:</b>\n"
+        "1️⃣ لینک سابسکریپشن بالا را کپی کنید.\n"
+        "2️⃣ در برنامه <b>v2rayNG</b> منوی ☰ را باز کرده و <b>Subscription group</b> را بزنید.\n"
+        "3️⃣ علامت <b>+</b> را بزنید، نام را <code>VIP Sub</code> بگذارید و لینک بالا را در <b>Subscription link</b> پیست کنید و تیک تایید را بزنید.\n"
+        "4️⃣ در صفحه اصلی، ۳ نقطه بالای صفحه را زده و <b>Update subscription</b> را انتخاب کنید.\n\n"
+        "✨ <b>از این پس حتی با تغییر سرورها، کانفیگ‌های شما در برنامه به صورت خودکار ترمیم و جایگزین می‌شوند!</b>\n"
+        "-------------------------------------\n\n"
+        "📋 <b>تک‌کانفیگ دستی همین لحظه:</b>\n"
+        f"<pre><code class=\"language-copy\">{direct_conf}</code></pre>\n\n"
         f"👑 <b>{tag}</b>"
     )
     return msg

@@ -616,16 +616,28 @@ async def cb_start_add_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     text = (
-        "➕ **افزودن دستی کانال یا گروه مقصد:**\n\n"
-        "💡 لطفاً آیدی کانال یا گروه را بفرستید (مثلاً `@Internet_azad369` یا `-1001234567890`).\n\n"
-        "*(مطمئن شوید قبل از ارسال، ربات را در آنجا ادمین کرده‌اید)*"
+        "➕ <b>افزودن دستی کانال یا گروه مقصد:</b>\n\n"
+        "💡 لطفاً آیدی کانال یا گروه را بفرستید (مثلاً <code>@Internet_azad369</code> یا <code>-1001234567890</code>).\n\n"
+        "<i>(مطمئن شوید قبل از ارسال، ربات را در آنجا ادمین کرده‌اید)</i>"
     )
     
-    await query.edit_message_text(
-        text=text,
-        reply_markup=build_cancel_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=build_cancel_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"خطا در ویرایش پیام افزودن مقصد: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
     return STATE_WAIT_ADD_DEST
 
 async def handle_receive_add_dest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -823,16 +835,28 @@ async def cb_start_set_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur_tag = await get_setting("tag", DEFAULT_TAG)
     
     text = (
-        "🏷️ **تغییر نام و تگ سرورها:**\n\n"
-        f"تگ فعلی: `{cur_tag}`\n\n"
-        "لطفاً آیدی جدیدی که می‌خواهید روی سرورها قرار گیرد را بفرستید (مثلاً `@Internet_azad369`):"
+        "🏷️ <b>تغییر نام و تگ سرورها:</b>\n\n"
+        f"تگ فعلی: <code>{cur_tag}</code>\n\n"
+        "لطفاً آیدی جدیدی که می‌خواهید روی سرورها قرار گیرد را بفرستید (مثلاً <code>@Internet_azad369</code>):"
     )
     
-    await query.edit_message_text(
-        text=text,
-        reply_markup=build_cancel_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=build_cancel_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"خطا در ویرایش پیام تگ: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
     return STATE_WAIT_TAG
 
 async def handle_receive_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -865,11 +889,21 @@ async def cb_cancel_conversation(update: Update, context: ContextTypes.DEFAULT_T
     menu_text = await get_main_menu_text()
     reply_markup = build_main_keyboard(auto_send_on, batch_size)
     
-    await query.edit_message_text(
-        text=menu_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=menu_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception:
+        try:
+            await query.message.reply_text(
+                text=menu_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
     return ConversationHandler.END
 
 async def post_init(application: Application):
@@ -891,6 +925,8 @@ def main():
             ]
         },
         fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
     )
     
     # مکالمه تنظیم زمان‌بندی
@@ -902,6 +938,8 @@ def main():
             ],
         },
         fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
     )
     
     # مکالمه تغییر تگ
@@ -913,6 +951,8 @@ def main():
             ]
         },
         fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
     )
     
     # افزودن هندلرها

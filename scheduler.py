@@ -150,6 +150,72 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
     if not destinations:
         return False, "⚠️ هیچ کانال یا گروه مقصدی برای ارسال فعال نیست! لطفاً از بخش «مدیریت کانال‌ها و گروه‌ها» مقصد را فعال کنید."
         
+    source_mode = await get_setting("source_mode", "vip")
+    
+    # ------------------ حالت ۱: ارسال کانفیگ‌های اختصاصی و زنده نت ملی VIP ------------------
+    if source_mode == "vip":
+        try:
+            from codespace_vip import get_latest_codespace_config
+            success_count = 0
+            errors = []
+            
+            for dest in destinations:
+                dest_tag = dest if dest.startswith("@") else default_tag
+                vip_data = await get_latest_codespace_config(tag=dest_tag)
+                
+                dest_items = [
+                    {
+                        "config": vip_data.get("stream", vip_data["direct"]),
+                        "flag": "🇩🇪",
+                        "proto": "VLESS",
+                        "operator": "⚡ دانلود سنگین و یوتیوب 4K",
+                        "ping": 65
+                    },
+                    {
+                        "config": vip_data["mci"],
+                        "flag": "🇩🇪",
+                        "proto": "VLESS",
+                        "operator": "📡 همراه اول (Turbo)",
+                        "ping": 70
+                    },
+                    {
+                        "config": vip_data["mtn"],
+                        "flag": "🇩🇪",
+                        "proto": "VLESS",
+                        "operator": "📱 ایرانسل و رایتل (Turbo)",
+                        "ping": 75
+                    }
+                ]
+                
+                msg_text, reply_markup = format_batch_channel_post(
+                    items=dest_items,
+                    channel_tag=dest_tag
+                )
+                
+                try:
+                    sent_msg = await bot.send_message(
+                        chat_id=dest,
+                        text=msg_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup,
+                        disable_web_page_preview=True
+                    )
+                    success_count += 1
+                except Exception as e:
+                    errors.append(f"{dest}: {str(e)}")
+                    logger.error(f"Error sending VIP post to {dest}: {e}")
+                    
+            if success_count > 0:
+                dest_str = f"به {success_count} کانال/گروه مقصد" if len(destinations) > 1 else ""
+                return True, f"✅ سرورهای نت ملی ۲۴ ساعته VIP با موفقیت {dest_str} ارسال شدند."
+            else:
+                return False, f"❌ خطا در ارسال پیام به مقاصد: {', '.join(errors)}"
+        except Exception as ex:
+            logger.error(f"Error in VIP source mode: {ex}")
+            # در صورت بروز هر خطایی به حالت مخازن فال‌بک می‌زند
+            pass
+
+    # ------------------ حالت ۲: ارسال کانفیگ‌های مخازن آنلاین (مهسا نت) ------------------
     max_attempts = 50
     raw_verified_configs = []
     

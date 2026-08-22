@@ -79,7 +79,7 @@ def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyboardMarkup:
-    """ساخت کیبورد اصلی شیک، فوق‌العاده خلوت و بهینه"""
+    """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""
     toggle_send_text = "🟢 ارسال خودکار: [روشن]" if auto_send_on else "🔴 ارسال خودکار: [خاموش]"
     
     keyboard = [
@@ -88,8 +88,8 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyb
             InlineKeyboardButton(f"📦 تعداد سرور: [{batch_size} عدد]", callback_data="btn_cycle_batch_size"),
         ],
         [
-            InlineKeyboardButton("🔍 تست پینگ و سلامت سرورها", callback_data="btn_ping_all"),
             InlineKeyboardButton("🌐 دریافت فوری سرورهای آنلاین", callback_data="btn_harvest_now"),
+            InlineKeyboardButton("📊 تست پینگ زنده سرورها", callback_data="btn_ping_all"),
         ],
         [
             InlineKeyboardButton("📢 مدیریت کانال‌ها و گروه‌ها", callback_data="btn_manage_destinations"),
@@ -100,7 +100,25 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyb
             InlineKeyboardButton("📤 ارسال تستی برای من (ادمین)", callback_data="btn_test_send_admin"),
         ],
         [
+            InlineKeyboardButton("📱 منوی کاربران (تست اپراتورها)", callback_data="btn_user_menu_view"),
             InlineKeyboardButton("🔄 بروزرسانی منو", callback_data="btn_main_menu"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def build_user_menu_keyboard() -> InlineKeyboardMarkup:
+    """منوی کاربران جهت دریافت سرور متناسب با اپراتور"""
+    keyboard = [
+        [
+            InlineKeyboardButton("📡 کانفیگ همراه اول", callback_data="btn_user_mci"),
+            InlineKeyboardButton("📱 کانفیگ ایرانسل", callback_data="btn_user_mtn"),
+        ],
+        [
+            InlineKeyboardButton("📶 مخابرات / رایتل", callback_data="btn_user_wifi"),
+            InlineKeyboardButton("💎 پروکسی پرسرعت تلگرام", callback_data="btn_user_proxy"),
+        ],
+        [
+            InlineKeyboardButton("👑 عضویت در کانال اینترنت آزاد", url="https://t.me/Internet_azad369")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -159,8 +177,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """هندلر دستور /start یا /admin"""
     user = update.effective_user
     if not is_admin(user.id):
+        user_text = (
+            f"سلام {user.first_name} عزیز! 🌹\n\n"
+            "🔮 به سامانه هوشمند **اینترنت آزاد (Free Vpn)** خوش آمدید.\n"
+            "⚡ سرورها و پروکسی‌های ما توسط **هوش مصنوعی** پایش می‌شوند و پینگ سبز دارند.\n\n"
+            "👇 **لطفاً اپراتور سیم‌کارت خود را انتخاب کنید:**"
+        )
         await update.message.reply_text(
-            "⛔ شما دسترسی لازم برای استفاده از این ربات را ندارید.",
+            text=user_text,
+            reply_markup=build_user_menu_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
         return
@@ -368,6 +393,105 @@ async def cb_test_send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await context.bot.send_message(chat_id=admin_chat_id, text=msg)
         except Exception:
             pass
+
+# ----------------- بخش دریافت هوشمند کانفیگ و پروکسی کاربران بر اساس اپراتور -----------------
+
+async def cb_user_menu_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش منوی کاربران برای تست یا استفاده"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_text = (
+        "🔮 **دریافت هوشمند سرور بر اساس اپراتور:**\n\n"
+        "سرورها متناسب با هر سیم‌کارت بهینه‌سازی شده‌اند و دارای پینگ پایدار می‌باشند.\n"
+        "👇 لطفاً اپراتور خود را انتخاب کنید:"
+    )
+    await query.message.reply_text(
+        text=user_text,
+        reply_markup=build_user_menu_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def cb_deliver_operator_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال کانفیگ تست‌شده و آماده کپی برای اپراتور انتخابی"""
+    query = update.callback_query
+    data = query.data
+    
+    op_map = {
+        "btn_user_mci": ("📡 همراه اول", "mci"),
+        "btn_user_mtn": ("📱 ایرانسل", "mtn"),
+        "btn_user_wifi": ("📶 مخابرات و رایتل", "wifi"),
+    }
+    
+    op_title, op_key = op_map.get(data, ("🌐 تمام اپراتورها", "all"))
+    await query.answer(f"در حال آماده‌سازی بهترین سرور {op_title}...")
+    
+    tag = await get_setting("tag", DEFAULT_TAG)
+    config_row = await get_next_config_to_send()
+    
+    if not config_row:
+        await query.message.reply_text(
+            "⚠️ در حال حاضر سرور آنلاینی در صف موجود نیست. لطفاً چند لحظه دیگر امتحان کنید یا به کانال بپیوندید:\n@Internet_azad369"
+        )
+        return
+        
+    raw_config = config_row["raw_config"]
+    transformed, flag, proto = transform_config(raw_config, tag=tag)
+    escaped_conf = html.escape(transformed)
+    
+    from proxy_manager import get_current_top_proxies, format_proxies_text
+    proxies_line = format_proxies_text(get_current_top_proxies(3))
+    
+    msg = (
+        f"👑 <b>کانفیگ اختصاصی {op_title}</b>\n\n"
+        f"📍 <b>موقعیت سرور :</b> {flag} (<b>{proto.upper()}</b>)\n"
+        f"⚡ <b>وضعیت :</b> متصل و تست‌شده\n"
+        f"-----------------\n\n"
+        f"<pre><code class=\"language-copy\">{escaped_conf}</code></pre>\n\n"
+        f"-----------------\n"
+        f"{proxies_line}\n\n"
+        f"👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n\n"
+        f"✅ {tag}"
+    )
+    
+    await query.message.reply_text(
+        text=msg,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
+async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال پروکسی‌های پرسرعت تلگرام به کاربر"""
+    query = update.callback_query
+    await query.answer("در حال دریافت ۳ پروکسی برتر...")
+    
+    from proxy_manager import get_current_top_proxies
+    proxies = get_current_top_proxies(3)
+    
+    if not proxies:
+        await query.message.reply_text("⚠️ در حال حاضر پروکسی تازه‌ای ثبت نشده است. لطفاً به کانال سر بزنید:\n@Internet_azad369")
+        return
+        
+    tag = await get_setting("tag", DEFAULT_TAG)
+    
+    lines = [
+        "💎 <b>پروکسی‌های پرسرعت و پایدار تلگرام (MTProto):</b>\n",
+        "💡 روی هر پروکسی کلیک کنید تا با یک لمس فعال شود:\n"
+    ]
+    
+    for idx, p in enumerate(proxies, 1):
+        ping_str = f"⚡ <code>{p['ping']}ms</code>" if p.get("ping", 0) > 0 else "⚡ <code>پرسرعت</code>"
+        link = p["link"]
+        lines.append(f"{idx}️⃣ <a href=\"{link}\"><b>اتصال به پروکسی شماره {idx}</b></a> ({ping_str})")
+        
+    lines.append("\n👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n")
+    lines.append(f"✅ {tag}")
+    
+    await query.message.reply_text(
+        text="\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
 
 # ----------------- بخش مدیریت کانال‌ها و گروه‌های مقصد (Multi-Destination) -----------------
 
@@ -809,6 +933,12 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_toggle_dest, pattern="^btn_toggle_dest_"))
     application.add_handler(CallbackQueryHandler(cb_show_delete_dest, pattern="^btn_show_delete_dest$"))
     application.add_handler(CallbackQueryHandler(cb_do_delete_dest, pattern="^btn_del_dest_"))
+    
+    # هندلرهای کاربری و انتخاب اپراتور
+    application.add_handler(CallbackQueryHandler(cb_user_menu_view, pattern="^btn_user_menu_view$"))
+    application.add_handler(CallbackQueryHandler(cb_deliver_operator_config, pattern="^btn_user_(mci|mtn|wifi)$"))
+    application.add_handler(CallbackQueryHandler(cb_deliver_user_proxy, pattern="^btn_user_proxy$"))
+    
     application.add_handler(CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$"))
     
     logger.info("در حال اجرای ربات...")

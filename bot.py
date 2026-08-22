@@ -117,7 +117,17 @@ async def get_main_menu_text() -> str:
     
     auto_send = "فعال 🟢" if settings.get("auto_send", "0") == "1" else "غیرفعال 🔴"
     batch_size = settings.get("batch_size", "3")
-    min_d = int(settings.get("min_delay", str(DEFAULT_MIN_DELAY))) // 60
+    
+    try:
+        raw_min = settings.get("min_delay", str(DEFAULT_MIN_DELAY))
+        min_d_sec = int(float(raw_min))
+        if min_d_sec < 60:
+            delay_str = f"هر `{min_d_sec}` ثانیه یکبار"
+        else:
+            delay_str = f"هر `{min_d_sec // 60}` دقیقه یکبار"
+    except Exception:
+        delay_str = "هر `1` دقیقه یکبار"
+        
     tag = settings.get("tag", DEFAULT_TAG)
     
     countdown = get_next_post_countdown()
@@ -128,7 +138,7 @@ async def get_main_menu_text() -> str:
         f"⚡ **وضعیت ارسال خودکار:** {auto_send}\n"
         f"📦 **تعداد سرور در هر پست:** `{batch_size}` عدد (دسته‌ای)\n"
         f"📢 **مقاصد فعال (کانال/گروه):** `{len(active_dests)}` مورد از `{len(destinations)}`\n"
-        f"⏱️ **فاصله زمانی ارسال:** هر `{min_d}` دقیقه یکبار\n"
+        f"⏱️ **سرعت ارسال:** {delay_str}\n"
         f"🏷️ **تگ سرورها:** `{tag}`\n"
         f"⏳ **ارسال بعدی:** `{next_post_str}`\n\n"
         "📊 **وضعیت سلامت سرورها:**\n"
@@ -605,7 +615,12 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
-    cur_delay = int(await get_setting("min_delay", str(DEFAULT_MIN_DELAY)))
+    try:
+        raw_val = await get_setting("min_delay", str(DEFAULT_MIN_DELAY))
+        cur_delay = int(float(raw_val))
+    except Exception:
+        cur_delay = DEFAULT_MIN_DELAY
+        
     if cur_delay < 60:
         cur_desc = f"هر `{cur_delay}` ثانیه یک پست"
     else:
@@ -626,11 +641,23 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "لطفاً مقدار دلخواه خود را بفرستید:"
     )
     
-    await query.edit_message_text(
-        text=text,
-        reply_markup=build_cancel_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=build_cancel_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"خطا در ویرایش پیام زمان‌بندی: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
     return STATE_WAIT_DELAY
 
 async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):

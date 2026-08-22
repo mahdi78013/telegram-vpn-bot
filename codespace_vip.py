@@ -216,8 +216,8 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
         
     # 2. ارسال خودکار به مخزن گیت‌هاب جهت سابسکریپشن سراسری
     token = os.environ.get("GITHUB_TOKEN") or ""
-    repo = os.environ.get("GITHUB_REPOSITORY") or "mahdi78013/telegram-vpn-bot"
-    if token and repo:
+    repo = "mahdi78013/fast-vless-pages"
+    if token:
         try:
             import base64
             import urllib.request
@@ -325,7 +325,7 @@ def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     domain = html.escape(config_data.get("domain", ""))
     updated = html.escape(config_data.get("updated_at", ""))
     tag = config_data.get("tag", "@Internet_azad369")
-    sub_link = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+    sub_link = "https://raw.githubusercontent.com/mahdi78013/fast-vless-pages/main/sub.txt"
     
     msg = (
         "🚀 <b>کانفیگ ابری اختصاصی با سیستم خودترمیم (Auto-Healing Sub)</b>\n\n"

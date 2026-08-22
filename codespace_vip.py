@@ -318,43 +318,26 @@ async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[st
 
 def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     """
-    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده با ۴ سرور چندمسیره + لینک سابسکریپشن خودکار (Auto-Healing)
+    قالب‌بندی فوق‌حرفه‌ای، تمیز و شیک برای تک‌کانفیگ توربو VIP اختصاصی
     """
     if "error" in config_data:
         return config_data["error"]
         
     direct_conf = html.escape(config_data["direct"])
-    mci_conf = html.escape(config_data["mci"])
-    mtn_conf = html.escape(config_data["mtn"])
-    stream_conf = html.escape(config_data["stream"])
-    
     domain = html.escape(config_data.get("domain", ""))
     tag = config_data.get("tag", "@Internet_azad369")
-    sub_link_cdn = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
-    sub_link_raw = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
     
     msg = (
-        "🚀 <b>پکیج ۴ سرور ابری اختصاصی با سیستم خودترمیم (Auto-Healing)</b>\n\n"
-        f"🌐 <b>دامنه زنده سرور:</b> <code>{domain}</code>\n"
-        "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با نهایت سرعت و پینگ سبز\n"
-        "📍 <b>موقعیت:</b> 🇩🇪 آلمان (گیگابیت اختصاصی)\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "🔗 <b>لینک سابسکریپشن مستقیم (CDN پرسرعت و ضدتحریم):</b>\n"
-        f"<code>{sub_link_cdn}</code>\n\n"
-        "🔗 <b>لینک سابسکریپشن کمکی (گیت‌هاب مستقیم):</b>\n"
-        f"<code>{sub_link_raw}</code>\n\n"
-        "💡 <b>راهنمای ۱ بار ثبت در v2rayNG:</b>\n"
-        "وارد منوی ☰ 👈 <b>Subscription group</b> 👈 علامت <b>+</b> شوید، نام را <code>VIP Sub</code> بگذارید و لینک اول (CDN) را الصاق کنید. سپس در صفحه اصلی ۳ نقطه بالا 👈 <b>Update subscription</b> را بزنید.\n"
+        "🚀 <b>کانفیگ پرسرعت ابری اختصاصی (Turbo VIP)</b>\n\n"
+        f"🌐 <b>دامنه سرور:</b> <code>{domain}</code>\n"
+        "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴ ساعته با پینگ پایدار و پورت گیگابیتی\n"
+        "📍 <b>موقعیت:</b> 🇩🇪 آلمان (هسته اختصاصی Xray)\n"
+        "📶 <b>پشتیبانی:</b> همراه اول، ایرانسل، مخابرات، رایتل و وای‌فای\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "📋 <b>کانفیگ‌های دستی تفکیک‌شده همین لحظه:</b>\n\n"
-        "⚡ <b>۱. سرور مستقیم ابری (Anycast Direct):</b>\n"
+        "📋 <b>کانفیگ مستقیم آماده اتصال (یکبار لمس برای کپی):</b>\n"
         f"<pre><code class=\"language-copy\">{direct_conf}</code></pre>\n\n"
-        "📱 <b>۲. مخصوص همراه اول و مخابرات (MCI Clean IP):</b>\n"
-        f"<pre><code class=\"language-copy\">{mci_conf}</code></pre>\n\n"
-        "📶 <b>۳. مخصوص ایرانسل و رایتل (MTN Clean IP):</b>\n"
-        f"<pre><code class=\"language-copy\">{mtn_conf}</code></pre>\n\n"
-        "🔥 <b>۴. سرور توربو دانلود و استریم 4K:</b>\n"
-        f"<pre><code class=\"language-copy\">{stream_conf}</code></pre>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>این کانفیگ به صورت مداوم در پس‌زمینه سرور تازه، بهینه و فعال نگه داشته می‌شود.</i>\n\n"
         f"👑 <b>{tag}</b>"
     )
     return msg

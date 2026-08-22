@@ -1067,6 +1067,19 @@ def main():
         allow_reentry=True,
     )
     
+    # مکالمه تغییر تگ
+    conv_set_tag = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_start_set_tag, pattern="^btn_set_tag$")],
+        states={
+            STATE_WAIT_TAG: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_receive_tag),
+            ]
+        },
+        fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
+        per_message=False,
+        allow_reentry=True,
+    )
+    
     # مکالمه تنظیم زمان‌بندی اختصاصی یک کانال یا گروه خاص
     conv_set_dest_delay = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_start_set_dest_delay, pattern="^btn_set_dest_delay_")],

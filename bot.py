@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import io
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from telegram import (
     Update,

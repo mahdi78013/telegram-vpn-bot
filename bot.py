@@ -104,10 +104,10 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
         ],
         [
             InlineKeyboardButton("🏷️ تغییر تگ و نام سرورها", callback_data="btn_set_tag"),
-            InlineKeyboardButton("📤 ارسال تستی برای من (ادمین)", callback_data="btn_test_send_admin"),
+            InlineKeyboardButton("📤 ارسال تستی (مخزن مهسا نت)", callback_data="btn_test_send_admin"),
         ],
         [
-            InlineKeyboardButton("🚀 ارسال کانفیگ نت ملی (Codespace VIP)", callback_data="btn_codespace_vip"),
+            InlineKeyboardButton("🚀 دریافت کانفیگ پرسرعت ابری (مخصوص من)", callback_data="btn_codespace_vip"),
         ],
         [
             InlineKeyboardButton("📱 منوی کاربران (تست اپراتورها)", callback_data="btn_user_menu_view"),

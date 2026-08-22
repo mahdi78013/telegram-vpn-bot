@@ -70,14 +70,14 @@ async def init_db():
             )
         """)
 
-        # جدول کانال‌ها و گروه‌های مقصد (چندگانه با زمان‌بندی مستقل)
+        # جدول کانال‌ها و گروه‌های مقصد (چندگانه با زمان‌بندی مستقل - پیش‌فرض روزی ۳ عدد = هر ۸ ساعت)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS destinations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id TEXT UNIQUE NOT NULL,
                 title TEXT,
                 chat_type TEXT DEFAULT 'channel',
-                interval_seconds INTEGER DEFAULT 900,
+                interval_seconds INTEGER DEFAULT 28800,
                 last_sent_at TIMESTAMP DEFAULT NULL,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -85,7 +85,7 @@ async def init_db():
         """)
         
         try:
-            await db.execute("ALTER TABLE destinations ADD COLUMN interval_seconds INTEGER DEFAULT 900")
+            await db.execute("ALTER TABLE destinations ADD COLUMN interval_seconds INTEGER DEFAULT 28800")
         except Exception:
             pass
             
@@ -106,13 +106,21 @@ async def init_db():
             )
         """)
         
-        # مقداردهی کانال‌های پیش‌فرض در مقاصد
+        # مقداردهی کانال‌های پیش‌فرض در مقاصد (پیش‌فرض روزی ۳ عدد = هر ۸ ساعت = 28800 ثانیه)
         await db.execute(
-            "INSERT OR IGNORE INTO destinations (chat_id, title, chat_type, is_active) VALUES (?, ?, 'channel', 1)",
+            """
+            INSERT INTO destinations (chat_id, title, chat_type, interval_seconds, is_active) 
+            VALUES (?, ?, 'channel', 28800, 1)
+            ON CONFLICT(chat_id) DO UPDATE SET interval_seconds = 28800, is_active = 1
+            """,
             ("@Internet_azad369", "کانال اصلی اینترنت آزاد")
         )
         await db.execute(
-            "INSERT OR IGNORE INTO destinations (chat_id, title, chat_type, is_active) VALUES (?, ?, 'channel', 1)",
+            """
+            INSERT INTO destinations (chat_id, title, chat_type, interval_seconds, is_active) 
+            VALUES (?, ?, 'channel', 28800, 1)
+            ON CONFLICT(chat_id) DO UPDATE SET interval_seconds = 28800, is_active = 1
+            """,
             ("@Muntivpn", "کانال دوم مانتی وی‌پی‌ان")
         )
 
@@ -126,6 +134,7 @@ async def init_db():
             "auto_harvest": "1", # 0: خاموش, 1: روشن (دریافت خودکار از گیت‌هاب)
             "harvest_interval_hours": "2", # هر 2 ساعت
             "batch_size": "3", # تعداد کانفیگ ارسالی در هر پست گروهی (پیش‌فرض ۳ تایی)
+            "source_mode": "mahsa", # منبع اصلی: مخازن مهسا نت و Reality
             "min_delay": str(DEFAULT_MIN_DELAY),
             "max_delay": str(DEFAULT_MAX_DELAY),
             "current_cycle": "1",
@@ -480,7 +489,7 @@ async def add_destination(chat_id: str, title: str, chat_type: str = "channel") 
             await db.execute(
                 """
                 INSERT INTO destinations (chat_id, title, chat_type, interval_seconds, is_active) 
-                VALUES (?, ?, ?, 900, 1)
+                VALUES (?, ?, ?, 28800, 1)
                 ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, is_active = 1
                 """,
                 (chat_id, title, chat_type)

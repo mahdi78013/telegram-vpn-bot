@@ -504,17 +504,40 @@ async def cb_deliver_operator_config(update: Update, context: ContextTypes.DEFAU
     await query.answer(f"در حال آماده‌سازی بهترین سرور {op_title}...")
     
     tag = await get_setting("tag", DEFAULT_TAG)
-    config_row = await get_next_config_to_send()
+    source_mode = await get_setting("source_mode", "vip")
     
-    if not config_row:
-        await query.message.reply_text(
-            "⚠️ در حال حاضر سرور آنلاینی در صف موجود نیست. لطفاً چند لحظه دیگر امتحان کنید یا به کانال بپیوندید:\n@Internet_azad369"
-        )
-        return
-        
-    raw_config = config_row["raw_config"]
-    transformed, flag, proto = transform_config(raw_config, tag=tag)
-    escaped_conf = html.escape(transformed)
+    if source_mode == "vip":
+        try:
+            from codespace_vip import get_latest_codespace_config
+            vip_data = await get_latest_codespace_config(tag=tag)
+            if op_key == "mci":
+                conf_to_send = vip_data.get("mci", vip_data["direct"])
+            elif op_key == "mtn":
+                conf_to_send = vip_data.get("mtn", vip_data["direct"])
+            else:
+                conf_to_send = vip_data["direct"]
+            escaped_conf = html.escape(conf_to_send)
+            flag = "🇩🇪"
+            proto = "VLESS"
+        except Exception as e:
+            logger.error(f"Error in VIP user config: {e}")
+            escaped_conf = None
+    else:
+        escaped_conf = None
+
+    if not escaped_conf:
+        config_row = await get_next_config_to_send()
+        if not config_row:
+            # حتی اگر دیتابیس خالی بود، از سرور ابری استفاده می‌کنیم تا کاربر دست خالی نماند
+            from codespace_vip import get_latest_codespace_config
+            vip_data = await get_latest_codespace_config(tag=tag)
+            escaped_conf = html.escape(vip_data["direct"])
+            flag = "🇩🇪"
+            proto = "VLESS"
+        else:
+            raw_config = config_row["raw_config"]
+            transformed, flag, proto = transform_config(raw_config, tag=tag)
+            escaped_conf = html.escape(transformed)
     
     from proxy_manager import get_current_top_proxies, format_proxies_text
     proxies_line = format_proxies_text(get_current_top_proxies(3))

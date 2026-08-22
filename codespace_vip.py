@@ -54,54 +54,97 @@ def setup_and_start_local_node():
             )
             os.chmod(cf_bin, 0o755)
             
-        # 3. ساخت کانفیگ بهینه‌شده Xray با Sniffing مخصوص اینستاگرام و متا
+        # 3. ساخت کانفیگ بهینه‌شده و فوق‌حرفه‌ای Xray با Sniffing، Early Data و TCP FastOpen
         cfg_path = os.path.join(PROXY_DIR, "config.json")
         cfg_json = {
+            "log": {
+                "loglevel": "warning"
+            },
             "inbounds": [
                 {
                     "port": 8080,
                     "listen": "127.0.0.1",
                     "protocol": "vless",
                     "settings": {
-                        "clients": [{"id": "f12abdbd-23a8-414b-a89e-c447be5ba57d"}],
+                        "clients": [
+                            {
+                                "id": "f12abdbd-23a8-414b-a89e-c447be5ba57d",
+                                "level": 0
+                            }
+                        ],
                         "decryption": "none"
                     },
                     "streamSettings": {
                         "network": "ws",
-                        "wsSettings": {"path": "/vless-ws"}
+                        "wsSettings": {
+                            "path": "/vless-ws",
+                            "maxEarlyData": 2048,
+                            "earlyDataHeaderName": "Sec-WebSocket-Protocol"
+                        },
+                        "sockopt": {
+                            "tcpFastOpen": True,
+                            "tcpNoDelay": True,
+                            "tcpKeepAliveInterval": 15
+                        }
                     },
                     "sniffing": {
                         "enabled": True,
-                        "destOverride": ["http", "tls", "quic"]
+                        "destOverride": ["http", "tls", "quic"],
+                        "metadataOnly": False
                     }
                 }
             ],
             "outbounds": [
                 {
                     "protocol": "freedom",
-                    "settings": {"domainStrategy": "UseIPv4"}
+                    "settings": {
+                        "domainStrategy": "UseIPv4"
+                    },
+                    "streamSettings": {
+                        "sockopt": {
+                            "tcpFastOpen": True,
+                            "tcpNoDelay": True,
+                            "tcpKeepAliveInterval": 15
+                        }
+                    }
                 }
             ]
         }
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg_json, f)
             
-        # 4. اجرای Xray در پس‌زمینه
-        subprocess.Popen([xray_bin, "-config", cfg_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # 5. اجرای تونل کلادفلر
-        tunnel_log = os.path.join(PROXY_DIR, "tunnel.log")
-        if os.path.exists(tunnel_log):
-            try:
-                os.remove(tunnel_log)
-            except Exception:
-                pass
+        # 4. تابع اجرای مطمئن Xray
+        def start_xray():
+            return subprocess.Popen([xray_bin, "-config", cfg_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-        log_f = open(tunnel_log, "w")
-        subprocess.Popen([cf_bin, "tunnel", "--url", "http://127.0.0.1:8080", "--no-autoupdate"], stdout=log_f, stderr=subprocess.STDOUT)
+        # 5. تابع اجرای مطمئن تونل کلادفلر
+        tunnel_log = os.path.join(PROXY_DIR, "tunnel.log")
+        def start_cloudflared():
+            if os.path.exists(tunnel_log):
+                try:
+                    os.remove(tunnel_log)
+                except Exception:
+                    pass
+            log_f = open(tunnel_log, "w")
+            cf_cmd = [
+                cf_bin, "tunnel",
+                "--url", "http://127.0.0.1:8080",
+                "--protocol", "http2",
+                "--http2-keep-alive-timeout", "30s",
+                "--http2-keep-alive-interval", "10s",
+                "--heartbeat-interval", "5s",
+                "--heartbeat-count", "5",
+                "--retries", "10",
+                "--no-autoupdate"
+            ]
+            return subprocess.Popen(cf_cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            
+        p_xray = start_xray()
+        p_cf = start_cloudflared()
         
-        # 6. رشته پس‌زمینه برای ثبت خودکار دامنه زنده
-        def wait_and_save_domain():
+        # 6. رشته سگ نگهبان (Watchdog) برای پایش دائمی و جلوگیری از قطعی
+        def watchdog_and_domain_saver():
+            nonlocal p_xray, p_cf
             time.sleep(6)
             domain = ""
             for _ in range(30):
@@ -115,7 +158,7 @@ def setup_and_start_local_node():
                 time.sleep(1)
                 
             if domain:
-                logger.info(f"✅ دامنه زنده ۲۴ ساعته سرور ثبت شد: {domain}")
+                logger.info(f"✅ دامنه زنده سرور ابری با موفقیت ثبت شد: {domain}")
                 with open(LOCAL_LIVE_PATH, "w", encoding="utf-8") as lf:
                     json.dump({
                         "domain": domain,
@@ -123,9 +166,22 @@ def setup_and_start_local_node():
                         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
                     }, lf)
                     
-        t = threading.Thread(target=wait_and_save_domain, daemon=True)
+            # حلقه پایش دائمی ۲۴ ساعته
+            while True:
+                time.sleep(15)
+                # بررسی سلامت Xray
+                if p_xray.poll() is not None:
+                    logger.warning("سرویس Xray متوقف شده بود، در حال راه‌اندازی مجدد...")
+                    p_xray = start_xray()
+                    
+                # بررسی سلامت Cloudflared
+                if p_cf.poll() is not None:
+                    logger.warning("تونل کلادفلر متوقف شده بود، در حال راه‌اندازی مجدد...")
+                    p_cf = start_cloudflared()
+                    
+        t = threading.Thread(target=watchdog_and_domain_saver, daemon=True)
         t.start()
-        logger.info("🚀 سرویس ۲۴ ساعته Cloud Node در پس‌زمینه راه‌اندازی شد.")
+        logger.info("🚀 سرویس ضدقطعی و سگ نگهبان ۲۴ ساعته Cloud VIP با موفقیت فعال شد.")
         
     except Exception as e:
         logger.error(f"Error in setup_and_start_local_node: {e}")
@@ -156,25 +212,25 @@ async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[st
     
     link_direct = (
         f"vless://{user_id}@{tunnel_domain}:443?"
-        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws"
+        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1"
         f"#⚡VIP-Turbo-Direct"
     )
     
     link_mci = (
         f"vless://{user_id}@{FASTEST_MCI_IP}:443?"
-        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws&sni={tunnel_domain}"
+        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws%3Fed%3D2048&sni={tunnel_domain}&alpn=h2%2Chttp%2F1.1"
         f"#⚡VIP-Turbo-MCI"
     )
     
     link_mtn = (
-        f"vless://{user_id}@FASTEST_MTN_IP:443?"
-        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws&sni={tunnel_domain}"
+        f"vless://{user_id}@{FASTEST_MTN_IP}:443?"
+        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws%3Fed%3D2048&sni={tunnel_domain}&alpn=h2%2Chttp%2F1.1"
         f"#⚡VIP-Turbo-Irancell"
-    ).replace("FASTEST_MTN_IP", FASTEST_MTN_IP)
+    )
 
     link_stream = (
         f"vless://{user_id}@{FASTEST_TURBO_IP}:443?"
-        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws&sni={tunnel_domain}"
+        f"encryption=none&security=tls&type=ws&host={tunnel_domain}&path=%2Fvless-ws%3Fed%3D2048&sni={tunnel_domain}&alpn=h2%2Chttp%2F1.1"
         f"#⚡VIP-Ultra-Stream-4K"
     )
     

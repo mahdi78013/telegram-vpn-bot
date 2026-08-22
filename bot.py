@@ -59,6 +59,7 @@ from scheduler import (
     start_scheduler,
     send_single_post,
     get_next_post_countdown,
+    reset_destination_timers,
 )
 from harvester import harvest_and_store_online_configs
 from codespace_vip import get_latest_codespace_config, format_codespace_vip_message
@@ -1111,10 +1112,16 @@ async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYP
         
     await set_setting("min_delay", str(total_seconds))
     await set_setting("max_delay", str(total_seconds + 5))
+    reset_destination_timers()
+    
+    settings = await get_all_settings()
+    auto_send_on = settings.get("auto_send", "0") == "1"
+    batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
     
     await update.message.reply_text(
         f"✅ **سرعت ارسال با موفقیت تنظیم شد!**\n\n🕒 **برنامه جدید:** {desc}",
-        reply_markup=build_main_keyboard(await get_setting("auto_send", "0") == "1"),
+        reply_markup=build_main_keyboard(auto_send_on, batch_size, source_mode),
         parse_mode=ParseMode.MARKDOWN
     )
     return ConversationHandler.END

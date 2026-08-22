@@ -889,54 +889,54 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
         return None, "فرمت وارد شده صحیح نیست."
 
 async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """درخواست زمان‌بندی و سرعت ارسال"""
+    """نمایش لیست کانال‌ها جهت انتخاب و تنظیم زمان‌بندی اختصاصی هر کدام"""
     query = update.callback_query
     await query.answer()
     
-    try:
-        raw_val = await get_setting("min_delay", str(DEFAULT_MIN_DELAY))
-        cur_delay = int(float(raw_val))
-    except Exception:
-        cur_delay = DEFAULT_MIN_DELAY
+    destinations = await get_all_destinations()
+    keyboard = []
+    
+    for d in destinations:
+        did = d["id"]
+        title = d.get("title") or d["chat_id"]
+        chat_type_icon = "📢" if d.get("chat_type") == "channel" else "👥"
+        interval_sec = d.get("interval_seconds") or 900
+        if interval_sec < 60:
+            int_str = f"{interval_sec} ثانیه"
+        else:
+            int_str = f"{interval_sec // 60} دقیقه"
+            
+        btn_text = f"{chat_type_icon} {title} (فعلی: هر {int_str})"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_set_dest_delay_{did}")])
         
-    if cur_delay < 60:
-        cur_desc = f"هر `{cur_delay}` ثانیه یک پست"
-    else:
-        cur_desc = f"هر `{cur_delay // 60}` دقیقه یک پست"
-        
+    keyboard.append([
+        InlineKeyboardButton("➕ افزودن کانال جدید", callback_data="btn_start_add_dest"),
+        InlineKeyboardButton("🔙 بازگشت به منو", callback_data="btn_main_menu"),
+    ])
+    
     text = (
-        "⏱️ **تنظیم زمان‌بندی و سرعت ارسال خودکار:**\n\n"
-        f"📌 **سرعت فعلی:** {cur_desc}\n\n"
-        "💡 **می‌توانید به هر یک از روش‌های زیر مقدار دلخواه را ارسال کنید:**\n\n"
-        "1️⃣ **روش فاصله زمانی (بر حسب دقیقه):**\n"
-        "• عدد `1` 👈 هر ۱ دقیقه یک ارسال\n"
-        "• عدد `3` 👈 هر ۳ دقیقه یک ارسال\n"
-        "• عدد `0.5` 👈 هر ۳۰ ثانیه یک ارسال\n\n"
-        "2️⃣ **روش تعداد در زمان (تعداد در دقیقه):**\n"
-        "• `2 در 1` (یا `2/1`) 👈 ۲ بار در هر ۱ دقیقه (هر ۳۰ ثانیه)\n"
-        "• `3 در 5` (یا `3/5`) 👈 ۳ بار در هر ۵ دقیقه (هر ۱۰۰ ثانیه)\n"
-        "• `5 در 1` (یا `5/1`) 👈 ۵ بار در هر ۱ دقیقه (هر ۱۲ ثانیه)\n\n"
-        "لطفاً مقدار دلخواه خود را بفرستید:"
+        "⏱️ <b>تنظیم زمان‌بندی و سرعت ارسال خودکار:</b>\n\n"
+        "💡 برای هر کانال یا گروه می‌توانید سرعت ارسال کاملاً جداگانه تعریف کنید.\n\n"
+        "👇 <b>لطفاً کانال یا گروهی که می‌خواهید زمان‌بندی آن را تغییر دهید انتخاب کنید:</b>"
     )
     
     try:
         await query.edit_message_text(
             text=text,
-            reply_markup=build_cancel_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
         )
     except Exception as e:
-        logger.error(f"خطا در ویرایش پیام زمان‌بندی: {e}")
+        logger.error(f"خطا در ویرایش پیام لیست زمان‌بندی: {e}")
         try:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=text,
-                reply_markup=build_cancel_keyboard(),
-                parse_mode=ParseMode.MARKDOWN
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
             )
         except Exception:
             pass
-    return STATE_WAIT_DELAY
 
 async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ذخیره زمان‌بندی و سرعت جدید"""
@@ -1067,32 +1067,6 @@ def main():
         allow_reentry=True,
     )
     
-    # مکالمه تنظیم زمان‌بندی
-    conv_set_delay = ConversationHandler(
-        entry_points=[CallbackQueryHandler(cb_start_set_delay, pattern="^btn_set_delay$")],
-        states={
-            STATE_WAIT_DELAY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_receive_delay),
-            ],
-        },
-        fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
-        per_message=False,
-        allow_reentry=True,
-    )
-    
-    # مکالمه تغییر تگ
-    conv_set_tag = ConversationHandler(
-        entry_points=[CallbackQueryHandler(cb_start_set_tag, pattern="^btn_set_tag$")],
-        states={
-            STATE_WAIT_TAG: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_receive_tag),
-            ]
-        },
-        fallbacks=[CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$")],
-        per_message=False,
-        allow_reentry=True,
-    )
-    
     # مکالمه تنظیم زمان‌بندی اختصاصی یک کانال یا گروه خاص
     conv_set_dest_delay = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_start_set_dest_delay, pattern="^btn_set_dest_delay_")],
@@ -1110,7 +1084,6 @@ def main():
     application.add_handler(CommandHandler(["start", "admin", "panel"], cmd_start))
     application.add_handler(ChatMemberHandler(cb_chat_member_updated, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(conv_add_dest)
-    application.add_handler(conv_set_delay)
     application.add_handler(conv_set_tag)
     application.add_handler(conv_set_dest_delay)
     
@@ -1121,6 +1094,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_test_send_admin, pattern="^btn_test_send_admin$"))
     application.add_handler(CallbackQueryHandler(cb_ping_all, pattern="^btn_ping_all$"))
     application.add_handler(CallbackQueryHandler(cb_clear_dead, pattern="^btn_clear_dead$"))
+    application.add_handler(CallbackQueryHandler(cb_start_set_delay, pattern="^btn_set_delay$"))
     application.add_handler(CallbackQueryHandler(cb_manage_destinations, pattern="^btn_manage_destinations$"))
     application.add_handler(CallbackQueryHandler(cb_open_single_dest, pattern="^btn_open_dest_"))
     application.add_handler(CallbackQueryHandler(cb_toggle_dest, pattern="^btn_toggle_dest_"))

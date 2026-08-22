@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import json
 import html
@@ -190,34 +190,27 @@ async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[st
 
 def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     """
-    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده بدون نیاز به هیچ تنظیم دستی
+    قالب‌بندی حرفه‌ای، شیک و ۱۰۰٪ آماده استفاده برای تک کانفیگ فوق‌سریع VIP
     """
     if "error" in config_data:
         return config_data["error"]
         
     direct_conf = html.escape(config_data["direct"])
-    mci_conf = html.escape(config_data["mci"])
-    mtn_conf = html.escape(config_data["mtn"])
-    stream_conf = html.escape(config_data.get("stream", ""))
     domain = html.escape(config_data.get("domain", ""))
     updated = html.escape(config_data.get("updated_at", ""))
     tag = config_data.get("tag", "@Internet_azad369")
     
     msg = (
-        "🚀 <b>کانفیگ‌های توربو و زنده ۲۴ ساعته (Cloud VIP)</b>\n\n"
+        "🚀 <b>کانفیگ تک و فوق‌حرفه‌ای نت ملی (Cloud VIP)</b>\n\n"
         f"🌐 <b>دامنه سرور:</b> <code>{domain}</code>\n"
-        f"⚡ <b>وضعیت:</b> 🟢 فعال ۲۴/۷ بر روی سرورهای ابری مایکروسافت\n"
-        "💡 <i>این سرور به صورت خودکار و مستقل از سیستم شما همیشه روشن است.</i>\n"
+        "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با پینگ پایدار\n"
+        "📍 <b>موقعیت:</b> 🇩🇪 آلمان (سرور ابری گیگابیتی اختصاصی)\n"
+        "📶 <b>اپراتور:</b> ⚡ مناسب تمامی اپراتورها (همراه اول، ایرانسل، وای‌فای)\n"
         "-------------------------------------\n\n"
-        "🎬 <b>۱. کانفیگ اولویت اول (دانلود سنگین و یوتیوب 4K):</b>\n"
-        f"<pre><code class=\"language-copy\">{stream_conf}</code></pre>\n\n"
-        "📱 <b>۲. کانفیگ فوق‌سریع همراه اول:</b>\n"
-        f"<pre><code class=\"language-copy\">{mci_conf}</code></pre>\n\n"
-        "📶 <b>۳. کانفیگ فوق‌سریع ایرانسل و رایتل:</b>\n"
-        f"<pre><code class=\"language-copy\">{mtn_conf}</code></pre>\n\n"
-        "🌐 <b>۴. کانفیگ مستقیم اورجینال:</b>\n"
+        "📋 <b>کانفیگ مستقیم آماده اتصال:</b>\n"
         f"<pre><code class=\"language-copy\">{direct_conf}</code></pre>\n\n"
         "-------------------------------------\n"
+        "💡 <i>این کانفیگ به صورت خودکار با نهایت سرعت و بدون نیاز به هیچ تنظیم دستی آماده شده است.</i>\n\n"
         f"👑 <b>{tag}</b>"
     )
     return msg

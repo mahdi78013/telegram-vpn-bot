@@ -129,55 +129,59 @@ def setup_and_start_local_node():
             cf_cmd = [
                 cf_bin, "tunnel",
                 "--url", "http://127.0.0.1:8080",
-                "--protocol", "http2",
-                "--http2-keep-alive-timeout", "30s",
-                "--http2-keep-alive-interval", "10s",
-                "--heartbeat-interval", "5s",
-                "--heartbeat-count", "5",
-                "--retries", "10",
-                "--no-autoupdate"
+                "--no-autoupdate",
+                "--edge-ip-version", "auto"
             ]
             return subprocess.Popen(cf_cmd, stdout=log_f, stderr=subprocess.STDOUT)
             
         p_xray = start_xray()
         p_cf = start_cloudflared()
         
-        # 6. رشته سگ نگهبان (Watchdog) برای پایش دائمی و جلوگیری از قطعی
+        # 6. رشته سگ نگهبان (Watchdog) برای پایش دائمی، بروزرسانی خودکار دامنه و ارسال پکت Keep-Alive
         def watchdog_and_domain_saver():
             nonlocal p_xray, p_cf
-            time.sleep(6)
-            domain = ""
-            for _ in range(30):
-                if os.path.exists(tunnel_log):
-                    with open(tunnel_log, "r", encoding="utf-8", errors="ignore") as lf:
-                        content = lf.read()
-                        m = re.search(r"https://([a-zA-Z0-9.-]+\.trycloudflare\.com)", content)
-                        if m:
-                            domain = m.group(1)
-                            break
-                time.sleep(1)
-                
-            if domain:
-                logger.info(f"✅ دامنه زنده سرور ابری با موفقیت ثبت شد: {domain}")
-                with open(LOCAL_LIVE_PATH, "w", encoding="utf-8") as lf:
-                    json.dump({
-                        "domain": domain,
-                        "uuid": "f12abdbd-23a8-414b-a89e-c447be5ba57d",
-                        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-                    }, lf)
-                    
-            # حلقه پایش دائمی ۲۴ ساعته
+            current_domain = ""
+            
             while True:
-                time.sleep(15)
-                # بررسی سلامت Xray
-                if p_xray.poll() is not None:
-                    logger.warning("سرویس Xray متوقف شده بود، در حال راه‌اندازی مجدد...")
-                    p_xray = start_xray()
+                try:
+                    # 1. بررسی سلامت Xray
+                    if p_xray.poll() is not None:
+                        logger.warning("سرویس Xray متوقف شده بود، در حال راه‌اندازی مجدد...")
+                        p_xray = start_xray()
+                        
+                    # 2. بررسی سلامت Cloudflared
+                    if p_cf.poll() is not None:
+                        logger.warning("تونل کلادفلر متوقف شده بود، در حال راه‌اندازی مجدد...")
+                        p_cf = start_cloudflared()
+                        time.sleep(3)
+                        
+                    # 3. استخراج و بروزرسانی بلادرنگ آخرین دامنه زنده
+                    if os.path.exists(tunnel_log):
+                        with open(tunnel_log, "r", encoding="utf-8", errors="ignore") as lf:
+                            content = lf.read()
+                            matches = re.findall(r"https://([a-zA-Z0-9.-]+\.trycloudflare\.com)", content)
+                            if matches:
+                                latest_domain = matches[-1]
+                                if latest_domain != current_domain:
+                                    current_domain = latest_domain
+                                    logger.info(f"✅ دامنه فعال و زنده سرور ابری ثبت/بروزرسانی شد: {current_domain}")
+                                    with open(LOCAL_LIVE_PATH, "w", encoding="utf-8") as out_f:
+                                        json.dump({
+                                            "domain": current_domain,
+                                            "uuid": "f12abdbd-23a8-414b-a89e-c447be5ba57d",
+                                            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+                                        }, out_f)
+                                        
+                    # 4. ارسال پکت Keep-Alive به پورت محلی جهت زنده نگه داشتن تونل کلادفلر
+                    try:
+                        urllib.request.urlopen("http://127.0.0.1:8080", timeout=2)
+                    except Exception:
+                        pass
+                        
+                except Exception as ex:
+                    logger.debug(f"Watchdog exception: {ex}")
                     
-                # بررسی سلامت Cloudflared
-                if p_cf.poll() is not None:
-                    logger.warning("تونل کلادفلر متوقف شده بود، در حال راه‌اندازی مجدد...")
-                    p_cf = start_cloudflared()
+                time.sleep(5)
                     
         t = threading.Thread(target=watchdog_and_domain_saver, daemon=True)
         t.start()

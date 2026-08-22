@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: bot-running-group
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   run-bot:

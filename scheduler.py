@@ -165,25 +165,11 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
                 
                 dest_items = [
                     {
-                        "config": vip_data.get("stream", vip_data["direct"]),
+                        "config": vip_data["direct"],
                         "flag": "🇩🇪",
                         "proto": "VLESS",
-                        "operator": "⚡ دانلود سنگین و یوتیوب 4K",
-                        "ping": 65
-                    },
-                    {
-                        "config": vip_data["mci"],
-                        "flag": "🇩🇪",
-                        "proto": "VLESS",
-                        "operator": "📡 همراه اول (Turbo)",
-                        "ping": 70
-                    },
-                    {
-                        "config": vip_data["mtn"],
-                        "flag": "🇩🇪",
-                        "proto": "VLESS",
-                        "operator": "📱 ایرانسل و رایتل (Turbo)",
-                        "ping": 75
+                        "operator": "⚡ تمام اپراتورها (همراه اول، ایرانسل، وای‌فای)",
+                        "ping": 68
                     }
                 ]
                 

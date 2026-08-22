@@ -97,9 +97,9 @@ def format_channel_post(
         channel_tag=channel_tag
     )
 
-async def send_single_post(bot: Bot, target_chat_id: str, is_test: bool = False) -> Tuple[bool, str]:
+async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_test: bool = False) -> Tuple[bool, str]:
     """
-    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال پس از ۳ بار تست پایداری متوالی به همراه لینک سابسکریپشن.
+    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال‌ها و گروه‌های مقصد پس از ۳ بار تست پایداری متوالی.
     خروجی: (موفق/ناموفق, پیام وضعیت)
     """
     tag = await get_setting("tag", DEFAULT_TAG)
@@ -109,6 +109,21 @@ async def send_single_post(bot: Bot, target_chat_id: str, is_test: bool = False)
         target_count = 1
     if target_count > 10:
         target_count = 10
+        
+    # تعیین مقاصد ارسال
+    destinations = []
+    if target_chat_id:
+        destinations = [target_chat_id]
+    else:
+        from database import get_active_destinations
+        destinations = await get_active_destinations()
+        if not destinations:
+            chan = await get_setting("channel_id", "")
+            if chan:
+                destinations = [chan]
+                
+    if not destinations:
+        return False, "⚠️ هیچ کانال یا گروه مقصدی برای ارسال فعال نیست! لطفاً از بخش «مدیریت کانال‌ها و گروه‌ها» مقصد را فعال کنید."
         
     max_attempts = 50
     verified_items = []
@@ -170,43 +185,40 @@ async def send_single_post(bot: Bot, target_chat_id: str, is_test: bool = False)
         channel_tag=tag
     )
     
-    try:
-        await bot.send_message(
-            chat_id=target_chat_id,
-            text=msg_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-            disable_web_page_preview=True
-        )
-        
+    success_count = 0
+    errors = []
+    
+    for dest in destinations:
+        try:
+            await bot.send_message(
+                chat_id=dest,
+                text=msg_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True
+            )
+            success_count += 1
+        except Forbidden as e:
+            errors.append(f"{dest}: ربات ادمین نیست")
+            logger.error(f"Forbidden error sending post to {dest}: {e}")
+        except BadRequest as e:
+            errors.append(f"{dest}: {e.message}")
+            logger.error(f"BadRequest error sending post to {dest}: {e}")
+        except Exception as e:
+            errors.append(f"{dest}: {str(e)}")
+            logger.error(f"Error sending post to {dest}: {e}")
+            
+    if success_count > 0:
         if not is_test:
             for it in verified_items:
                 await mark_config_as_sent(it["id"])
                 
         count_sent = len(verified_items)
         flags_str = " ".join(it["flag"] for it in verified_items)
-        return True, f"✅ تعداد {count_sent} سرور گروهی {flags_str} با موفقیت به کانال ارسال شد."
-        
-    except Forbidden as e:
-        error_msg = "❌ ربات در کانال ادمین نیست یا دسترسی ارسال پیام ندارد!"
-        logger.error(f"Forbidden error sending post: {e}")
-        return False, error_msg
-    except BadRequest as e:
-        error_msg = f"❌ خطای تلگرام (آیدی کانال را بررسی کنید): {e.message}"
-        logger.error(f"BadRequest error sending post: {e}")
-        return False, error_msg
-    except RetryAfter as e:
-        error_msg = f"⚠️ محدودیت ارسال تلگرام. لطفاً {e.retry_after} ثانیه صبر کنید."
-        logger.warning(f"Flood control: {e}")
-        return False, error_msg
-    except TelegramError as e:
-        error_msg = f"❌ خطای تلگرام: {e.message}"
-        logger.error(f"Telegram error sending post: {e}")
-        return False, error_msg
-    except Exception as e:
-        error_msg = f"❌ خطای پیش‌بینی نشده: {str(e)}"
-        logger.error(f"Unexpected error: {e}")
-        return False, error_msg
+        dest_str = f"به {success_count} کانال/گروه مقصد" if len(destinations) > 1 else ""
+        return True, f"✅ تعداد {count_sent} سرور گروهی {flags_str} با موفقیت {dest_str} ارسال شد."
+    else:
+        return False, f"❌ خطا در ارسال پیام به مقاصد: {', '.join(errors)}"
 
 async def health_checker_loop():
     """
@@ -304,21 +316,8 @@ async def scheduler_loop(bot: Bot):
                 await asyncio.sleep(5)
                 continue
                 
-            if not channel_id:
-                logger.warning("ارسال خودکار روشن است اما کانال مشخص نشده است.")
-                try:
-                    await bot.send_message(
-                        chat_id=ADMIN_ID,
-                        text="⚠️ **هشدار ارسال خودکار:**\nارسال خودکار فعال است اما کانال مقصد تنظیم نشده است! لطفاً از پنل مدیریت کانال را تنظیم کنید."
-                    )
-                except Exception:
-                    pass
-                await set_setting("auto_send", "0")
-                await asyncio.sleep(5)
-                continue
-                
-            # ارسال یک پست پس از تست زنده
-            success, msg = await send_single_post(bot, channel_id, is_test=False)
+            # ارسال به تمام مقاصد فعال
+            success, msg = await send_single_post(bot, None, is_test=False)
             
             if not success:
                 logger.warning(f"ارسال با خطا مواجه شد: {msg}")

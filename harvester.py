@@ -15,23 +15,26 @@ from tester import ping_configs_batch
 
 logger = logging.getLogger("CloudHarvester")
 
-# لیست منابع سابسکریپشن اختصاصی و انحصاری مهسا نت
 DEFAULT_SUBSCRIPTION_SOURCES = [
     {
-        "name": "Mahsa Official Meta-Subscription (Hiddify)",
-        "url": "https://raw.githubusercontent.com/hiddify/hiddify-app/refs/heads/main/test.configs/mahsa"
+        "name": "ALIILAPRO Live VLESS Reality Stream",
+        "url": "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
     },
     {
-        "name": "MahsaNet MTN Active VLESS Reality",
+        "name": "MahsaNet MTN/MCI Active VLESS Reality",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt"
     },
     {
-        "name": "MahsaNet MCI Active VLESS Reality",
-        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt"
+        "name": "ShadowsocksAggregator Global Multi-Protocol",
+        "url": "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt"
     },
     {
-        "name": "MahsaNet Segment Direct Bypass Nodes",
-        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt"
+        "name": "MFUU Verified Fast Nodes",
+        "url": "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray"
+    },
+    {
+        "name": "Mahsa Official Meta-Subscription",
+        "url": "https://raw.githubusercontent.com/hiddify/hiddify-app/refs/heads/main/test.configs/mahsa"
     }
 ]
 

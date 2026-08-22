@@ -214,47 +214,19 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
     except Exception as e:
         logger.warning(f"Error writing local sub.txt: {e}")
         
-    # 2. ارسال خودکار به مخزن گیت‌هاب جهت سابسکریپشن سراسری
-    token = os.environ.get("GITHUB_TOKEN") or ""
-    repo = os.environ.get("GITHUB_REPOSITORY") or "mahdi78013/telegram-vpn-bot"
-    if token:
+    # 2. انتشار خودکار در مخزن گیت‌هاب جهت سابسکریپشن سراسری
+    if sys.platform.startswith("linux"):
         try:
-            import base64
-            import urllib.request
-            
-            b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
-            api_url = f"https://api.github.com/repos/{repo}/contents/sub.txt"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "AutoSub-Updater"
-            }
-            sha = ""
-            try:
-                req_get = urllib.request.Request(api_url, headers=headers)
-                with urllib.request.urlopen(req_get, timeout=5) as resp:
-                    d = json.loads(resp.read().decode("utf-8"))
-                    sha = d.get("sha", "")
-            except Exception:
-                pass
-                
-            body_dict = {
-                "message": "Auto-update live self-healing subscription [skip ci]",
-                "content": b64_content,
-            }
-            if sha:
-                body_dict["sha"] = sha
-                
-            req_put = urllib.request.Request(
-                api_url,
-                data=json.dumps(body_dict).encode("utf-8"),
-                headers=headers,
-                method="PUT"
-            )
-            with urllib.request.urlopen(req_put, timeout=8) as r:
-                logger.info("✅ لینک سابسکریپشن هوشمند گیت‌هاب با موفقیت بروزرسانی شد.")
+            repo_dir = os.path.dirname(__file__)
+            subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=repo_dir, capture_output=True, check=False)
+            subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=repo_dir, capture_output=True, check=False)
+            subprocess.run(["git", "add", "sub.txt"], cwd=repo_dir, capture_output=True, check=False)
+            subprocess.run(["git", "commit", "-m", "Auto-update live self-healing subscription [skip ci]"], cwd=repo_dir, capture_output=True, check=False)
+            res = subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, check=False)
+            if res.returncode == 0:
+                logger.info("✅ لینک سابسکریپشن هوشمند در مخزن گیت‌هاب با موفقیت بروزرسانی شد.")
         except Exception as ex:
-            logger.warning(f"Error pushing sub.txt to GitHub: {ex}")
+            logger.warning(f"Error pushing sub.txt via git: {ex}")
 
 async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[str, Any]:
     """

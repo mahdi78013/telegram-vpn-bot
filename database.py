@@ -70,17 +70,29 @@ async def init_db():
             )
         """)
 
-        # جدول کانال‌ها و گروه‌های مقصد (چندگانه با قابلیت فعال/غیرفعال‌سازی)
+        # جدول کانال‌ها و گروه‌های مقصد (چندگانه با زمان‌بندی مستقل)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS destinations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id TEXT UNIQUE NOT NULL,
                 title TEXT,
                 chat_type TEXT DEFAULT 'channel',
+                interval_seconds INTEGER DEFAULT 900,
+                last_sent_at TIMESTAMP DEFAULT NULL,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        try:
+            await db.execute("ALTER TABLE destinations ADD COLUMN interval_seconds INTEGER DEFAULT 900")
+        except Exception:
+            pass
+            
+        try:
+            await db.execute("ALTER TABLE destinations ADD COLUMN last_sent_at TIMESTAMP DEFAULT NULL")
+        except Exception:
+            pass
 
         # جدول ثبت پست‌های ارسالی جهت پاکسازی خودکار پس از فیلتر شدن
         await db.execute("""
@@ -422,12 +434,40 @@ async def get_active_destinations() -> List[str]:
             return [row[0] for row in rows]
 
 async def get_all_destinations() -> List[Dict[str, Any]]:
-    """دریافت لیست تمام مقاصد ثبت شده (کانال‌ها و گروه‌ها)"""
+    """دریافت لیست تمام مقاصد ثبت شده (کانال‌ها و گروه‌ها) همراه با زمان‌بندی مستقل آنها"""
     async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT id, chat_id, title, chat_type, is_active FROM destinations ORDER BY id ASC") as cursor:
+        async with db.execute("SELECT id, chat_id, title, chat_type, interval_seconds, last_sent_at, is_active FROM destinations ORDER BY id ASC") as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+async def get_all_active_destinations_with_info() -> List[Dict[str, Any]]:
+    """دریافت مقاصد فعال همراه با جزئیات زمان‌بندی و آخرین ارسال"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, chat_id, title, chat_type, interval_seconds, last_sent_at, is_active FROM destinations WHERE is_active = 1 ORDER BY id ASC") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+async def get_destination_by_id(dest_id: int) -> Optional[Dict[str, Any]]:
+    """دریافت اطلاعات یک مقصد بر اساس شناسه"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, chat_id, title, chat_type, interval_seconds, last_sent_at, is_active FROM destinations WHERE id = ?", (dest_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+async def set_destination_interval(dest_id: int, interval_seconds: int):
+    """تنظیم فاصله زمانی اختصاصی ارسال برای یک مقصد خاص"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        await db.execute("UPDATE destinations SET interval_seconds = ? WHERE id = ?", (interval_seconds, dest_id))
+        await db.commit()
+
+async def update_destination_last_sent(dest_id: int):
+    """بروزرسانی زمان آخرین ارسال برای یک مقصد خاص"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        await db.execute("UPDATE destinations SET last_sent_at = CURRENT_TIMESTAMP WHERE id = ?", (dest_id,))
+        await db.commit()
 
 async def add_destination(chat_id: str, title: str, chat_type: str = "channel") -> bool:
     """افزودن یا فعال‌سازی یک کانال یا گروه مقصد"""
@@ -435,8 +475,8 @@ async def add_destination(chat_id: str, title: str, chat_type: str = "channel") 
         try:
             await db.execute(
                 """
-                INSERT INTO destinations (chat_id, title, chat_type, is_active) 
-                VALUES (?, ?, ?, 1)
+                INSERT INTO destinations (chat_id, title, chat_type, interval_seconds, is_active) 
+                VALUES (?, ?, ?, 900, 1)
                 ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, is_active = 1
                 """,
                 (chat_id, title, chat_type)

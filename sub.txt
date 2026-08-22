@@ -1,0 +1,2 @@
+# Auto-Healing VIP Subscription for @Internet_azad369
+vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@contributed-independent-vice-indoor.trycloudflare.com:443?encryption=none&security=tls&type=ws&host=contributed-independent-vice-indoor.trycloudflare.com&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-Direct

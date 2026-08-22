@@ -37,6 +37,10 @@ jobs:
           ADMIN_ID: ${{ secrets.ADMIN_ID || '748538264' }}
           DEFAULT_TAG: ${{ secrets.DEFAULT_TAG || '@Internet_azad369' }}
           PYTHONIOENCODING: utf-8
-          PYTHONUNBUFFERED: 1
         run: |
-          python bot.py
+          while true; do
+            echo "🚀 Starting 24/7 VPN Telegram Bot Daemon..."
+            python bot.py || true
+            echo "⚠️ Bot process stopped. Auto-recovering in 5 seconds..."
+            sleep 5
+          done

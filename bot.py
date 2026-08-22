@@ -61,6 +61,7 @@ from scheduler import (
     get_next_post_countdown,
 )
 from harvester import harvest_and_store_online_configs
+from codespace_vip import get_latest_codespace_config, format_codespace_vip_message
 
 # تنظیمات لاگ
 logging.basicConfig(
@@ -102,6 +103,9 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3") -> InlineKeyb
         [
             InlineKeyboardButton("🏷️ تغییر تگ و نام سرورها", callback_data="btn_set_tag"),
             InlineKeyboardButton("📤 ارسال تستی برای من (ادمین)", callback_data="btn_test_send_admin"),
+        ],
+        [
+            InlineKeyboardButton("🚀 ارسال کانفیگ نت ملی (Codespace VIP)", callback_data="btn_codespace_vip"),
         ],
         [
             InlineKeyboardButton("📱 منوی کاربران (تست اپراتورها)", callback_data="btn_user_menu_view"),
@@ -398,6 +402,38 @@ async def cb_test_send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception:
             pass
 
+async def cb_admin_codespace_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تولید و ارسال فوری کانفیگ پرسرعت Codespace VIP نت ملی مستقیماً به پیوی ادمین"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await query.answer("⛔ این قابلیت منحصراً برای مدیریت تعریف شده است.", show_alert=True)
+        return
+        
+    try:
+        await query.answer("⏳ در حال دریافت تازه ترین کانفیگ Codespace VIP...")
+    except Exception:
+        pass
+        
+    try:
+        tag = await get_setting("tag", DEFAULT_TAG)
+        config_data = await get_latest_codespace_config(tag=tag)
+        msg = format_codespace_vip_message(config_data)
+        
+        admin_chat_id = str(ADMIN_ID)
+        await context.bot.send_message(
+            chat_id=admin_chat_id,
+            text=msg,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Error in cb_admin_codespace_vip: {e}")
+        try:
+            await query.message.reply_text(f"❌ خطا در آماده‌سازی کانفیگ: {e}")
+        except Exception:
+            pass
+
 # ----------------- بخش دریافت هوشمند کانفیگ و پروکسی کاربران بر اساس اپراتور -----------------
 
 async def cb_user_menu_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -499,6 +535,32 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ----------------- بخش مدیریت کانال‌ها و گروه‌های مقصد (Multi-Destination) -----------------
 
+def format_interval_text(interval_sec: int) -> str:
+    """تبدیل ثانیه به متن فارسی روان و خوانا"""
+    if not interval_sec or interval_sec <= 0:
+        return "تنظیم‌نشده"
+    if interval_sec == 28800:
+        return "روزی ۳ بار (هر ۸ ساعت)"
+    if interval_sec == 86400:
+        return "روزی ۱ بار (هر ۲۴ ساعت)"
+    if interval_sec == 43200:
+        return "روزی ۲ بار (هر ۱۲ ساعت)"
+    if interval_sec == 21600:
+        return "روزی ۴ بار (هر ۶ ساعت)"
+    if interval_sec == 14400:
+        return "روزی ۶ بار (هر ۴ ساعت)"
+    if interval_sec >= 3600:
+        hours = interval_sec / 3600.0
+        if hours.is_integer():
+            return f"هر {int(hours)} ساعت"
+        return f"هر {hours:g} ساعت"
+    if interval_sec >= 60:
+        mins = interval_sec / 60.0
+        if mins.is_integer():
+            return f"هر {int(mins)} دقیقه"
+        return f"هر {mins:g} دقیقه"
+    return f"هر {interval_sec} ثانیه"
+
 async def build_destinations_keyboard() -> InlineKeyboardMarkup:
     """ساخت کیبورد مدیریت کانال‌ها و گروه‌ها با نمایش زمان‌بندی تفکیک‌شده"""
     destinations = await get_all_destinations()
@@ -511,11 +573,8 @@ async def build_destinations_keyboard() -> InlineKeyboardMarkup:
         status_icon = "🟢" if is_active else "🔴"
         chat_type_icon = "📢" if d.get("chat_type") == "channel" else "👥"
         
-        interval_sec = d.get("interval_seconds") or 900
-        if interval_sec < 60:
-            int_str = f"{interval_sec}ث"
-        else:
-            int_str = f"{interval_sec // 60}دقیقه"
+        interval_sec = d.get("interval_seconds") or 28800
+        int_str = format_interval_text(interval_sec)
             
         btn_text = f"{status_icon} {chat_type_icon} {title} | ⏱️ {int_str}"
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_open_dest_{did}")])
@@ -539,7 +598,8 @@ async def cb_manage_destinations(update: Update, context: ContextTypes.DEFAULT_T
     text = (
         "📢 <b>مدیریت کانال‌ها و گروه‌های مقصد (زمان‌بندی تفکیک‌شده):</b>\n\n"
         "💡 <b>راهنمای هوشمند:</b>\n"
-        "برای هر کانال می‌توانید <b>زمان‌بندی و سرعت ارسال جداگانه</b> تعیین کنید!\n\n"
+        "برای هر کانال می‌توانید <b>زمان‌بندی و سرعت ارسال جداگانه</b> تعیین کنید!\n"
+        "<i>(تنظیم پیش‌فرض برای تمام کانال‌ها: روزی ۳ بار / هر ۸ ساعت)</i>\n\n"
         f"📌 <b>تعداد کل مقاصد:</b> <code>{len(destinations)}</code> (🟢 فعال: <code>{active_count}</code>)\n\n"
         "👇 <b>روی هر کانال/گروه کلیک کنید تا تنظیمات اختصاصی آن باز شود:</b>"
     )
@@ -574,11 +634,8 @@ async def cb_open_single_dest(update: Update, context: ContextTypes.DEFAULT_TYPE
     is_active = d.get("is_active", 1) == 1
     status_text = "🟢 فعال و روشن (ارسال انجام می‌شود)" if is_active else "🔴 غیرفعال و خاموش"
     
-    interval_sec = d.get("interval_seconds") or 900
-    if interval_sec < 60:
-        int_desc = f"هر {interval_sec} ثانیه یک پست"
-    else:
-        int_desc = f"هر {interval_sec // 60} دقیقه یک پست"
+    interval_sec = d.get("interval_seconds") or 28800
+    int_desc = format_interval_text(interval_sec)
         
     last_sent = d.get("last_sent_at") or "هنوز ارسالی انجام نشده"
     
@@ -678,25 +735,26 @@ async def cb_start_set_dest_delay(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["target_dest_id"] = dest_id
     title = d.get("title") or d["chat_id"]
     
-    interval_sec = d.get("interval_seconds") or 900
-    if interval_sec < 60:
-        cur_desc = f"هر {interval_sec} ثانیه"
-    else:
-        cur_desc = f"هر {interval_sec // 60} دقیقه"
+    interval_sec = d.get("interval_seconds") or 28800
+    cur_desc = format_interval_text(interval_sec)
         
     text = (
         f"⏱️ <b>تنظیم زمان‌بندی اختصاصی برای کانال «{title}»:</b>\n\n"
         f"📌 <b>سرعت فعلی این کانال:</b> <code>{cur_desc}</code>\n\n"
         "💡 <b>می‌توانید به هر یک از روش‌های زیر مقدار دلخواه را ارسال فرمایید:</b>\n\n"
-        "1️⃣ <b>فاصله زمانی (دقیقه):</b>\n"
-        "• عدد <code>1</code> 👈 هر ۱ دقیقه\n"
-        "• عدد <code>5</code> 👈 هر ۵ دقیقه\n"
-        "• عدد <code>15</code> 👈 هر ۱۵ دقیقه\n"
-        "• عدد <code>30</code> 👈 هر ۳۰ دقیقه\n"
-        "• عدد <code>0.5</code> 👈 هر ۳۰ ثانیه\n\n"
-        "2️⃣ <b>تعداد در زمان (نرخ):</b>\n"
-        "• <code>2 در 1</code> 👈 ۲ بار در هر ۱ دقیقه\n"
-        "• <code>3 در 10</code> 👈 ۳ بار در هر ۱۰ دقیقه\n\n"
+        "1️⃣ <b>تعداد در روز (پیشنهادی):</b>\n"
+        "• <code>روزی 3</code> 👈 ۳ بار در روز (هر ۸ ساعت)\n"
+        "• <code>روزی 1</code> 👈 ۱ بار در روز (هر ۲۴ ساعت)\n"
+        "• <code>روزی 2</code> 👈 ۲ بار در روز (هر ۱۲ ساعت)\n"
+        "• <code>روزی 6</code> 👈 ۶ بار در روز (هر ۴ ساعت)\n\n"
+        "2️⃣ <b>فاصله به ساعت یا دقیقه:</b>\n"
+        "• <code>8 ساعت</code> 👈 هر ۸ ساعت\n"
+        "• <code>4 ساعت</code> 👈 هر ۴ ساعت\n"
+        "• <code>1 ساعت</code> 👈 هر ۱ ساعت\n"
+        "• <code>30</code> 👈 هر ۳۰ دقیقه\n"
+        "• <code>15</code> 👈 هر ۱۵ دقیقه\n\n"
+        "3️⃣ <b>تعداد در زمان (نرخ):</b>\n"
+        "• <code>2 در 1</code> 👈 ۲ بار در هر ۱ دقیقه\n\n"
         "لطفاً مقدار دلخواه برای این کانال را ارسال کنید:"
     )
     
@@ -724,7 +782,7 @@ async def handle_receive_dest_delay(update: Update, context: ContextTypes.DEFAUL
     
     if total_seconds is None:
         await update.message.reply_text(
-            f"⚠️ {desc}\nلطفاً مثلاً بفرستید <code>15</code> یا <code>30</code> یا <code>2 در 1</code>:",
+            f"⚠️ {desc}\nلطفاً مثلاً بفرستید <code>روزی 3</code> یا <code>8 ساعت</code> یا <code>15</code>:",
             reply_markup=build_cancel_keyboard(),
             parse_mode=ParseMode.HTML
         )
@@ -853,8 +911,10 @@ async def cb_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
 def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
     """
     تحلیل هوشمند ورودی زمان‌بندی کاربر:
-    1. به صورت ساده: مثلا '1' یعنی هر ۱ دقیقه، '3' یعنی هر ۳ دقیقه، '0.5' یعنی هر ۳۰ ثانیه
-    2. به صورت نرخ/تعداد: مثلا '2 در 1' یا '2/1' یعنی ۲ بار در هر ۱ دقیقه
+    1. به صورت روزانه: مثلا 'روزی 3' یا '3 بار در روز' یا '3 عدد در روز'
+    2. به صورت ساعت: مثلا '8 ساعت' یا 'هر 8 ساعت'
+    3. به صورت دقیقه: مثلا '15' یا '30'
+    4. به صورت نرخ: مثلا '2 در 1'
     """
     import re
     text = text.strip().replace("٫", ".").replace("،", ".")
@@ -863,27 +923,65 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
     for i in range(10):
         text = text.replace(persian_digits[i], str(i)).replace(arabic_digits[i], str(i))
         
-    # بررسی الگوی نرخ (مثلاً ۲ در ۱ یا ۲ در ۳ یا ۲/۱)
+    # 1. بررسی الگوهای روزانه (مثلاً روزی ۳ یا ۳ بار در روز یا روزی ۳ عدد)
+    match_daily = re.search(r"(?:روزی|در روز|روزانه)\s*(\d+(?:\.\d+)?)\s*(?:عدد|بار|پست|کانفیگ|تا)?", text, re.IGNORECASE)
+    if not match_daily:
+        match_daily = re.search(r"(\d+(?:\.\d+)?)\s*(?:عدد|بار|پست|کانفیگ|تا)?\s*(?:روزی|در روز|روزانه)", text, re.IGNORECASE)
+    if match_daily:
+        count = float(match_daily.group(1))
+        if count <= 0:
+            return None, "تعداد در روز باید بزرگتر از صفر باشد."
+        total_seconds = max(10, int(86400.0 / count))
+        hours = total_seconds / 3600.0
+        if hours >= 1:
+            desc = f"**روزی {count:g} بار** (هر {hours:g} ساعت یک ارسال)"
+        else:
+            desc = f"**روزی {count:g} بار** (هر {total_seconds // 60} دقیقه یک ارسال)"
+        return total_seconds, desc
+
+    # 2. بررسی الگوی ساعت (مثلاً ۸ ساعت یا هر ۸ ساعت)
+    match_hours = re.search(r"(\d+(?:\.\d+)?)\s*(?:ساعت|ساعته|hours?|hr|h)", text, re.IGNORECASE)
+    if match_hours:
+        hours = float(match_hours.group(1))
+        if hours <= 0:
+            return None, "مقدار ساعت باید بزرگتر از صفر باشد."
+        total_seconds = max(10, int(hours * 3600.0))
+        times_per_day = 24.0 / hours
+        if times_per_day >= 1 and times_per_day.is_integer():
+            desc = f"**هر {hours:g} ساعت یکبار** (روزی {int(times_per_day)} بار ارسال)"
+        else:
+            desc = f"**هر {hours:g} ساعت یکبار**"
+        return total_seconds, desc
+
+    # 3. بررسی الگوی نرخ (مثلاً ۲ در ۱ یا ۲ در ۲۴)
     match_rate = re.search(r"(\d+(?:\.\d+)?)\s*(?:در|/|per|in|توی)\s*(\d+(?:\.\d+)?)", text, re.IGNORECASE)
     if match_rate:
         count = float(match_rate.group(1))
-        minutes = float(match_rate.group(2))
-        if count <= 0 or minutes <= 0:
+        unit_val = float(match_rate.group(2))
+        if count <= 0 or unit_val <= 0:
             return None, "مقادیر باید بزرگتر از صفر باشند."
-        total_seconds = max(10, int((minutes * 60.0) / count))
-        desc = f"**{count:g} بار در هر {minutes:g} دقیقه** (هر `{total_seconds}` ثانیه یک ارسال)"
+        if unit_val == 24:
+            total_seconds = max(10, int((24 * 3600.0) / count))
+            hours = total_seconds / 3600.0
+            desc = f"**{count:g} بار در ۲۴ ساعت** (هر {hours:g} ساعت یک ارسال)"
+            return total_seconds, desc
+        total_seconds = max(10, int((unit_val * 60.0) / count))
+        desc = f"**{count:g} بار در هر {unit_val:g} دقیقه** (هر `{total_seconds}` ثانیه یک ارسال)"
         return total_seconds, desc
 
-    # بررسی عدد ساده (به دقیقه)
+    # 4. بررسی عدد ساده (پیش‌فرض بر حسب دقیقه)
     try:
-        minutes = float(text)
-        if minutes <= 0:
+        val = float(text)
+        if val <= 0:
             return None, "مقدار زمان باید بزرگتر از صفر باشد."
-        total_seconds = max(10, int(minutes * 60.0))
+        total_seconds = max(10, int(val * 60.0))
         if total_seconds < 60:
             desc = f"**هر `{total_seconds}` ثانیه یکبار**"
+        elif total_seconds >= 3600:
+            hours = total_seconds / 3600.0
+            desc = f"**هر `{hours:g}` ساعت یکبار**"
         else:
-            desc = f"**هر `{minutes:g}` دقیقه یکبار**"
+            desc = f"**هر `{val:g}` دقیقه یکبار**"
         return total_seconds, desc
     except ValueError:
         return None, "فرمت وارد شده صحیح نیست."
@@ -900,13 +998,10 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
         did = d["id"]
         title = d.get("title") or d["chat_id"]
         chat_type_icon = "📢" if d.get("chat_type") == "channel" else "👥"
-        interval_sec = d.get("interval_seconds") or 900
-        if interval_sec < 60:
-            int_str = f"{interval_sec} ثانیه"
-        else:
-            int_str = f"{interval_sec // 60} دقیقه"
+        interval_sec = d.get("interval_seconds") or 28800
+        int_str = format_interval_text(interval_sec)
             
-        btn_text = f"{chat_type_icon} {title} (فعلی: هر {int_str})"
+        btn_text = f"{chat_type_icon} {title} (فعلی: {int_str})"
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"btn_set_dest_delay_{did}")])
         
     keyboard.append([
@@ -916,7 +1011,8 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     text = (
         "⏱️ <b>تنظیم زمان‌بندی و سرعت ارسال خودکار:</b>\n\n"
-        "💡 برای هر کانال یا گروه می‌توانید سرعت ارسال کاملاً جداگانه تعریف کنید.\n\n"
+        "💡 برای هر کانال یا گروه می‌توانید سرعت ارسال کاملاً جداگانه تعریف کنید.\n"
+        "<i>(پیش‌فرض: روزی ۳ بار / هر ۸ ساعت یک پست)</i>\n\n"
         "👇 <b>لطفاً کانال یا گروهی که می‌خواهید زمان‌بندی آن را تغییر دهید انتخاب کنید:</b>"
     )
     
@@ -1105,6 +1201,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_cycle_batch_size, pattern="^btn_cycle_batch_size$"))
     application.add_handler(CallbackQueryHandler(cb_harvest_now, pattern="^btn_harvest_now$"))
     application.add_handler(CallbackQueryHandler(cb_test_send_admin, pattern="^btn_test_send_admin$"))
+    application.add_handler(CallbackQueryHandler(cb_admin_codespace_vip, pattern="^btn_codespace_vip$"))
     application.add_handler(CallbackQueryHandler(cb_ping_all, pattern="^btn_ping_all$"))
     application.add_handler(CallbackQueryHandler(cb_clear_dead, pattern="^btn_clear_dead$"))
     application.add_handler(CallbackQueryHandler(cb_start_set_delay, pattern="^btn_set_delay$"))

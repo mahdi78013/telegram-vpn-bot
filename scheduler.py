@@ -124,10 +124,10 @@ def format_channel_post(
 
 async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_test: bool = False) -> Tuple[bool, str]:
     """
-    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال‌ها و گروه‌های مقصد پس از ۳ بار تست پایداری متوالی.
+    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال‌ها و گروه‌های مقصد با تگ و آیدی اختصاصی هر کانال.
     خروجی: (موفق/ناموفق, پیام وضعیت)
     """
-    tag = await get_setting("tag", DEFAULT_TAG)
+    default_tag = await get_setting("tag", DEFAULT_TAG)
     batch_size_str = await get_setting("batch_size", "3")
     target_count = int(batch_size_str) if batch_size_str.isdigit() else 3
     if target_count < 1:
@@ -151,10 +151,10 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
         return False, "⚠️ هیچ کانال یا گروه مقصدی برای ارسال فعال نیست! لطفاً از بخش «مدیریت کانال‌ها و گروه‌ها» مقصد را فعال کنید."
         
     max_attempts = 50
-    verified_items = []
+    raw_verified_configs = []
     
     for attempt in range(max_attempts):
-        if len(verified_items) >= target_count:
+        if len(raw_verified_configs) >= target_count:
             break
             
         config_row = await get_next_config_to_send()
@@ -169,51 +169,60 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
         
         if is_verified:
             await update_config_ping(cid, True, avg_ping)
-            transformed_config, flag, proto_name = transform_config(raw_config, tag=tag)
-            verified_items.append({
+            raw_verified_configs.append({
                 "id": cid,
-                "config": transformed_config,
-                "flag": flag,
-                "proto": proto_name,
+                "raw_config": raw_config,
                 "ping": avg_ping
             })
-            logger.info(f"سرور شناسه {cid} تایید شد ({len(verified_items)}/{target_count}): {detail}")
+            logger.info(f"سرور شناسه {cid} تایید شد ({len(raw_verified_configs)}/{target_count}): {detail}")
         else:
             logger.info(f"سرور شناسه {cid} در تست ۳ مرحله‌ای رد شد ({detail})؛ سرور بعدی بررسی می‌شود.")
             await update_config_ping(cid, False, -1)
             
-    if not verified_items:
-        # در صورتی که تست ۳ مرحله‌ای موقتاً پاس نشود، از سرورهای مهسا استفاده می‌کنیم تا ارسال قطع نشود
-        logger.info("تکمیل ظرفیت ارسال از سرورهای فعال مهسا با تگ اختصاصی کانال...")
+    if not raw_verified_configs:
+        # در صورتی که تست ۳ مرحله‌ای موقتاً پاس نشود، از سرورهای موجود استفاده می‌کنیم تا ارسال قطع نشود
+        logger.info("تکمیل ظرفیت ارسال از سرورهای دیتابیس...")
         for fallback_attempt in range(target_count * 3):
-            if len(verified_items) >= target_count:
+            if len(raw_verified_configs) >= target_count:
                 break
             config_row = await get_next_config_to_send()
             if not config_row:
                 break
             raw_config = config_row["raw_config"]
             cid = config_row["id"]
-            transformed_config, flag, proto_name = transform_config(raw_config, tag=tag)
-            verified_items.append({
+            raw_verified_configs.append({
                 "id": cid,
-                "config": transformed_config,
-                "flag": flag,
-                "proto": proto_name,
+                "raw_config": raw_config,
                 "ping": 380
             })
             
-    if not verified_items:
+    if not raw_verified_configs:
         return False, "❌ هیچ کانفیگی در دیتابیس موجود نیست! لطفاً دریافت ابری را اجرا کنید."
         
-    msg_text, reply_markup = format_batch_channel_post(
-        items=verified_items,
-        channel_tag=tag
-    )
-    
     success_count = 0
     errors = []
+    sent_config_ids = [it["id"] for it in raw_verified_configs]
     
+    # ارسال به هر مقصد با نام و تگ اختصاصی همان کانال
     for dest in destinations:
+        dest_tag = dest if dest.startswith("@") else default_tag
+        
+        dest_items = []
+        for raw_item in raw_verified_configs:
+            transformed_conf, flg, prt = transform_config(raw_item["raw_config"], tag=dest_tag)
+            dest_items.append({
+                "id": raw_item["id"],
+                "config": transformed_conf,
+                "flag": flg,
+                "proto": prt,
+                "ping": raw_item["ping"]
+            })
+            
+        msg_text, reply_markup = format_batch_channel_post(
+            items=dest_items,
+            channel_tag=dest_tag
+        )
+        
         try:
             sent_msg = await bot.send_message(
                 chat_id=dest,
@@ -225,7 +234,7 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
             success_count += 1
             if not is_test and sent_msg:
                 try:
-                    await record_sent_post(dest, sent_msg.message_id, [it["id"] for it in verified_items])
+                    await record_sent_post(dest, sent_msg.message_id, sent_config_ids)
                 except Exception as ex:
                     logger.debug(f"خطا در ثبت پست ارسالی: {ex}")
         except Forbidden as e:
@@ -240,13 +249,12 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
             
     if success_count > 0:
         if not is_test:
-            for it in verified_items:
-                await mark_config_as_sent(it["id"])
+            for cid in sent_config_ids:
+                await mark_config_as_sent(cid)
                 
-        count_sent = len(verified_items)
-        flags_str = " ".join(it["flag"] for it in verified_items)
+        count_sent = len(raw_verified_configs)
         dest_str = f"به {success_count} کانال/گروه مقصد" if len(destinations) > 1 else ""
-        return True, f"✅ تعداد {count_sent} سرور گروهی {flags_str} با موفقیت {dest_str} ارسال شد."
+        return True, f"✅ تعداد {count_sent} سرور گروهی با موفقیت و با تگ اختصاصی {dest_str} ارسال شد."
     else:
         return False, f"❌ خطا در ارسال پیام به مقاصد: {', '.join(errors)}"
 

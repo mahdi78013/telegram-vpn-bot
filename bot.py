@@ -304,8 +304,8 @@ async def cb_toggle_source_mode(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("⛔ فقط مخصوص مدیریت است.", show_alert=True)
         return
         
-    current = await get_setting("source_mode", "vip")
-    new_mode = "mahsa" if current == "vip" else "vip"
+    current = await get_setting("source_mode", "mahsa")
+    new_mode = "vip" if current == "mahsa" else "mahsa"
     await set_setting("source_mode", new_mode)
     
     label = "🚀 نت ملی VIP" if new_mode == "vip" else "🌐 مخازن آنلاین مهسا نت"

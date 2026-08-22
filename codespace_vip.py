@@ -206,10 +206,14 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
     c_stream = f"vless://{uuid}@{FASTEST_TURBO_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-4KStream"
     
     plain_content = f"{c_direct}\n{c_mci}\n{c_mtn}\n{c_stream}\n"
+    import base64
+    b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
     
-    # 1. ذخیره محلی
+    # 1. ذخیره محلی فرمت استاندارد Base64 و Plain
     try:
         with open(SUB_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write(b64_content)
+        with open(os.path.join(os.path.dirname(__file__), "sub_plain.txt"), "w", encoding="utf-8") as f:
             f.write(plain_content)
     except Exception as e:
         logger.warning(f"Error writing local sub.txt: {e}")
@@ -220,8 +224,8 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
             repo_dir = os.path.dirname(__file__)
             subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=repo_dir, capture_output=True, check=False)
             subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=repo_dir, capture_output=True, check=False)
-            subprocess.run(["git", "add", "sub.txt"], cwd=repo_dir, capture_output=True, check=False)
-            subprocess.run(["git", "commit", "-m", "Auto-update live self-healing subscription [skip ci]"], cwd=repo_dir, capture_output=True, check=False)
+            subprocess.run(["git", "add", "sub.txt", "sub_plain.txt"], cwd=repo_dir, capture_output=True, check=False)
+            subprocess.run(["git", "commit", "-m", "Auto-update live Base64 subscription [skip ci]"], cwd=repo_dir, capture_output=True, check=False)
             res = subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, capture_output=True, check=False)
             if res.returncode == 0:
                 logger.info("✅ لینک سابسکریپشن هوشمند در مخزن گیت‌هاب با موفقیت بروزرسانی شد.")
@@ -300,7 +304,8 @@ def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
     
     domain = html.escape(config_data.get("domain", ""))
     tag = config_data.get("tag", "@Internet_azad369")
-    sub_link = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+    sub_link_cdn = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+    sub_link_raw = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
     
     msg = (
         "🚀 <b>پکیج ۴ سرور ابری اختصاصی با سیستم خودترمیم (Auto-Healing)</b>\n\n"
@@ -308,10 +313,12 @@ def format_codespace_vip_message(config_data: Dict[str, Any]) -> str:
         "⚡ <b>وضعیت:</b> 🟢 متصل ۲۴/۷ با نهایت سرعت و پینگ سبز\n"
         "📍 <b>موقعیت:</b> 🇩🇪 آلمان (گیگابیت اختصاصی)\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🔗 <b>لینک سابسکریپشن خودکار (همیشه متصل و بدون قطعی):</b>\n"
-        f"<code>{sub_link}</code>\n\n"
+        "🔗 <b>لینک سابسکریپشن مستقیم (CDN پرسرعت و ضدتحریم):</b>\n"
+        f"<code>{sub_link_cdn}</code>\n\n"
+        "🔗 <b>لینک سابسکریپشن کمکی (گیت‌هاب مستقیم):</b>\n"
+        f"<code>{sub_link_raw}</code>\n\n"
         "💡 <b>راهنمای ۱ بار ثبت در v2rayNG:</b>\n"
-        "وارد منوی ☰ 👈 <b>Subscription group</b> 👈 علامت <b>+</b> شوید، نام را <code>VIP Sub</code> بگذارید و لینک بالا را الصاق کنید. سپس در صفحه اصلی ۳ نقطه بالا 👈 <b>Update subscription</b> را بزنید.\n"
+        "وارد منوی ☰ 👈 <b>Subscription group</b> 👈 علامت <b>+</b> شوید، نام را <code>VIP Sub</code> بگذارید و لینک اول (CDN) را الصاق کنید. سپس در صفحه اصلی ۳ نقطه بالا 👈 <b>Update subscription</b> را بزنید.\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "📋 <b>کانفیگ‌های دستی تفکیک‌شده همین لحظه:</b>\n\n"
         "⚡ <b>۱. سرور مستقیم ابری (Anycast Direct):</b>\n"

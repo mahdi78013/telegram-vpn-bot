@@ -1249,6 +1249,19 @@ async def post_init(application: Application):
         setup_and_start_local_node()
     except Exception as e:
         logger.error(f"Error starting local 24/7 cloud node: {e}")
+        
+    # دریافت و تست فوری سرورهای Reality و مخازن آنلاین در پس‌زمینه هنگام بوت
+    async def initial_harvest():
+        try:
+            from harvester import harvest_and_store_online_configs
+            from database import get_active_source_urls
+            sources = await get_active_source_urls()
+            await harvest_and_store_online_configs(sources=sources, instant_test_count=100)
+            logger.info("✅ دریافت اولیه سرورهای Reality و مخازن آنلاین با موفقیت انجام شد.")
+        except Exception as ex:
+            logger.warning(f"Error in initial harvest: {ex}")
+            
+    asyncio.create_task(initial_harvest())
     logger.info("ربات، دیتابیس و زمان‌بند هوشمند با موفقیت راه‌اندازی شدند.")
 
 def main():

@@ -315,81 +315,73 @@ async def auto_harvest_loop(bot: Bot):
             logger.error(f"خطا در حلقه دریافت خودکار ابری: {e}", exc_info=True)
             await asyncio.sleep(60)
 
+_destination_next_send_time: Dict[str, float] = {}
+
 async def scheduler_loop(bot: Bot):
     """
-    حلقه اصلی زمان‌بندی و ارسال خودکار سرورها به کانال با فواصل زمانی رندوم
+    حلقه اصلی زمان‌بندی و ارسال خودکار سرورها به صورت مستقل و تفکیک‌شده برای هر کانال/گروه مقصد
     """
-    global _next_post_time
-    logger.info("موتور ارسال خودکار شروع به کار کرد.")
+    global _next_post_time, _destination_next_send_time
+    logger.info("موتور ارسال خودکار چندکاناله با زمان‌بندی تفکیک‌شده شروع به کار کرد.")
     
     while True:
         try:
             settings = await get_all_settings()
             auto_send_enabled = settings.get("auto_send", "0") == "1"
-            channel_id = settings.get("channel_id", "").strip()
             
             if not auto_send_enabled:
                 _next_post_time = None
                 await asyncio.sleep(5)
                 continue
                 
-            # ارسال به تمام مقاصد فعال
-            success, msg = await send_single_post(bot, None, is_test=False)
+            from database import get_all_active_destinations_with_info, update_destination_last_sent
+            active_dests = await get_all_active_destinations_with_info()
             
-            if not success:
-                logger.warning(f"ارسال با خطا مواجه شد: {msg}")
-                if "هیچ کانفیگ آنلاین" in msg:
-                    # تلاش خودکار برای دریافت از منابع ابری
-                    logger.info("دیتابیس خالی است، در حال اجرای دریافت خودکار از منابع ابری...")
-                    sources = await get_active_source_urls()
-                    rep = await harvest_and_store_online_configs(sources=sources, instant_test_count=60)
-                    if rep.get("instant_online", 0) > 0 or rep.get("new_added", 0) > 0:
-                        logger.info(f"تعداد {rep.get('new_added', 0)} سرور اضافه شد؛ تلاش مجدد برای ارسال...")
-                        await asyncio.sleep(5)
-                        continue
-                    else:
-                        try:
-                            await bot.send_message(
-                                chat_id=ADMIN_ID,
-                                text=(
-                                    "⚠️ **اعلان سیستم ارسال خودکار:**\n"
-                                    "دیتابیس خالی است و در منابع آنلاین سرور جدیدی یافت نشد.\n"
-                                    "ارسال خودکار موقتاً متوقف شد. لطفاً دکمه «🌐 دریافت فوری سرورهای آنلاین» را بزنید."
-                                )
-                            )
-                        except Exception:
-                            pass
-                        await set_setting("auto_send", "0")
-                        await asyncio.sleep(15)
-                        continue
-                elif "ادمین نیست" in msg:
-                    try:
-                        await bot.send_message(
-                            chat_id=ADMIN_ID,
-                            text=f"⚠️ **اعلان سیستم ارسال خودکار:**\n{msg}\nارسال خودکار متوقف شد."
-                        )
-                    except Exception:
-                        pass
-                    await set_setting("auto_send", "0")
-                    await asyncio.sleep(10)
-                    continue
-            
-            # محاسبه تاخیر رندوم برای پست بعدی (پیش‌فرض بین ۱ تا ۱۰ دقیقه)
-            min_delay = int(settings.get("min_delay", str(DEFAULT_MIN_DELAY)))
-            max_delay = int(settings.get("max_delay", str(DEFAULT_MAX_DELAY)))
-            
-            if min_delay > max_delay:
-                min_delay, max_delay = max_delay, min_delay
-            if min_delay < 10:
-                min_delay = 10
+            if not active_dests:
+                _next_post_time = None
+                await asyncio.sleep(5)
+                continue
                 
-            sleep_duration = random.randint(min_delay, max_delay)
             loop = asyncio.get_running_loop()
-            _next_post_time = loop.time() + sleep_duration
+            current_time = loop.time()
             
-            logger.info(f"پست بعدی در {sleep_duration} ثانیه دیگر ({sleep_duration // 60} دقیقه و {sleep_duration % 60} ثانیه) ارسال خواهد شد.")
-            
-            await asyncio.sleep(sleep_duration)
+            # بررسی هر کانال/گروه مقصد به صورت کاملاً مستقل
+            for d in active_dests:
+                did = d["id"]
+                chat_id = d["chat_id"]
+                interval = int(d.get("interval_seconds") or 900)
+                if interval < 10:
+                    interval = 10
+                    
+                if chat_id not in _destination_next_send_time:
+                    # نوبت اول: شروع با تاخیر کوتاه ۵ تا ۲۰ ثانیه‌ای
+                    _destination_next_send_time[chat_id] = current_time + random.randint(5, min(20, interval))
+                    
+                if current_time >= _destination_next_send_time[chat_id]:
+                    logger.info(f"زمان ارسال به مقصد {chat_id} (فاصله: {interval} ثانیه) فرا رسید.")
+                    success, msg = await send_single_post(bot, target_chat_id=chat_id, is_test=False)
+                    if success:
+                        await update_destination_last_sent(did)
+                        _destination_next_send_time[chat_id] = current_time + interval
+                        logger.info(f"✅ ارسال به {chat_id} موفق بود. ارسال بعدی در {interval} ثانیه دیگر انجام خواهد شد.")
+                    else:
+                        logger.warning(f"ارسال به {chat_id} با خطا مواجه شد: {msg}")
+                        if "هیچ کانفیگ آنلاین" in msg:
+                            sources = await get_active_source_urls()
+                            rep = await harvest_and_store_online_configs(sources=sources, instant_test_count=60)
+                            if rep.get("instant_online", 0) > 0 or rep.get("new_added", 0) > 0:
+                                _destination_next_send_time[chat_id] = current_time + 5
+                                continue
+                        _destination_next_send_time[chat_id] = current_time + 30
+                        
+            # محاسبه نزدیک‌ترین زمان ارسال بعدی برای نمایش شمارش معکوس در پنل
+            upcoming_times = [_destination_next_send_time[d["chat_id"]] for d in active_dests if d["chat_id"] in _destination_next_send_time]
+            if upcoming_times:
+                _next_post_time = min(upcoming_times)
+            else:
+                _next_post_time = None
+                
+            await asyncio.sleep(4)
             
         except asyncio.CancelledError:
             logger.info("تسک ارسال خودکار لغو شد.")
@@ -397,7 +389,7 @@ async def scheduler_loop(bot: Bot):
             break
         except Exception as e:
             logger.error(f"خطا در حلقه ارسال خودکار: {e}", exc_info=True)
-            await asyncio.sleep(15)
+            await asyncio.sleep(10)
 
 async def auto_refresh_proxies_loop():
     """تسک پس‌زمینه دریافت و پایش مداوم پروکسی‌های پرسرعت تلگرام هر ۳۰ دقیقه"""

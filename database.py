@@ -106,10 +106,14 @@ async def init_db():
             )
         """)
         
-        # مقداردهی کانال پیش‌فرض در مقاصد
+        # مقداردهی کانال‌های پیش‌فرض در مقاصد
         await db.execute(
             "INSERT OR IGNORE INTO destinations (chat_id, title, chat_type, is_active) VALUES (?, ?, 'channel', 1)",
             ("@Internet_azad369", "کانال اصلی اینترنت آزاد")
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO destinations (chat_id, title, chat_type, is_active) VALUES (?, ?, 'channel', 1)",
+            ("@Muntivpn", "کانال دوم مانتی وی‌پی‌ان")
         )
 
         # مقداردهی اولیه آمار

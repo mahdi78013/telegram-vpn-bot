@@ -15,7 +15,7 @@ from tester import ping_configs_batch
 
 logger = logging.getLogger("CloudHarvester")
 
-# لیست منابع سابسکریپشن اختصاصی و انحصاری مهسا نت
+# لیست منابع سابسکریپشن اختصاصی مهسا نت و انونیموس VIP
 DEFAULT_SUBSCRIPTION_SOURCES = [
     {
         "name": "Mahsa Official Meta-Subscription (Hiddify)",
@@ -28,6 +28,10 @@ DEFAULT_SUBSCRIPTION_SOURCES = [
     {
         "name": "MahsaNet Segment Direct Bypass Nodes",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt"
+    },
+    {
+        "name": "4n0nymou3 Multi-Proxy High Speed VIP",
+        "url": "https://raw.githubusercontent.com/4n0nymou3/multi-proxy-config-fetcher/refs/heads/main/configs/proxy_configs.txt"
     }
 ]
 

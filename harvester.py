@@ -22,8 +22,12 @@ DEFAULT_SUBSCRIPTION_SOURCES = [
         "url": "https://raw.githubusercontent.com/hiddify/hiddify-app/refs/heads/main/test.configs/mahsa"
     },
     {
-        "name": "MahsaNet MTN/MCI Active VLESS Reality",
+        "name": "MahsaNet MTN Active VLESS Reality",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt"
+    },
+    {
+        "name": "MahsaNet MCI Active VLESS Reality",
+        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt"
     },
     {
         "name": "MahsaNet Segment Direct Bypass Nodes",

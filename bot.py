@@ -562,18 +562,68 @@ async def cb_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
 
 # ----------------- بخش تنظیم سرعت / زمان‌بندی ارسال -----------------
 
+def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
+    """
+    تحلیل هوشمند ورودی زمان‌بندی کاربر:
+    1. به صورت ساده: مثلا '1' یعنی هر ۱ دقیقه، '3' یعنی هر ۳ دقیقه، '0.5' یعنی هر ۳۰ ثانیه
+    2. به صورت نرخ/تعداد: مثلا '2 در 1' یا '2/1' یعنی ۲ بار در هر ۱ دقیقه
+    """
+    import re
+    text = text.strip().replace("٫", ".").replace("،", ".")
+    persian_digits = "۰۱۲۳۴۵۶۷۸۹"
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+    for i in range(10):
+        text = text.replace(persian_digits[i], str(i)).replace(arabic_digits[i], str(i))
+        
+    # بررسی الگوی نرخ (مثلاً ۲ در ۱ یا ۲ در ۳ یا ۲/۱)
+    match_rate = re.search(r"(\d+(?:\.\d+)?)\s*(?:در|/|per|in|توی)\s*(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+    if match_rate:
+        count = float(match_rate.group(1))
+        minutes = float(match_rate.group(2))
+        if count <= 0 or minutes <= 0:
+            return None, "مقادیر باید بزرگتر از صفر باشند."
+        total_seconds = max(10, int((minutes * 60.0) / count))
+        desc = f"**{count:g} بار در هر {minutes:g} دقیقه** (هر `{total_seconds}` ثانیه یک ارسال)"
+        return total_seconds, desc
+
+    # بررسی عدد ساده (به دقیقه)
+    try:
+        minutes = float(text)
+        if minutes <= 0:
+            return None, "مقدار زمان باید بزرگتر از صفر باشد."
+        total_seconds = max(10, int(minutes * 60.0))
+        if total_seconds < 60:
+            desc = f"**هر `{total_seconds}` ثانیه یکبار**"
+        else:
+            desc = f"**هر `{minutes:g}` دقیقه یکبار**"
+        return total_seconds, desc
+    except ValueError:
+        return None, "فرمت وارد شده صحیح نیست."
+
 async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """درخواست فاصله زمانی ارسال به دقیقه"""
+    """درخواست زمان‌بندی و سرعت ارسال"""
     query = update.callback_query
     await query.answer()
     
-    min_d = int(await get_setting("min_delay", str(DEFAULT_MIN_DELAY))) // 60
-    
+    cur_delay = int(await get_setting("min_delay", str(DEFAULT_MIN_DELAY)))
+    if cur_delay < 60:
+        cur_desc = f"هر `{cur_delay}` ثانیه یک پست"
+    else:
+        cur_desc = f"هر `{cur_delay // 60}` دقیقه یک پست"
+        
     text = (
-        "⏱️ **تنظیم زمان‌بندی و سرعت ارسال:**\n\n"
-        f"فاصله فعلی: **هر `{min_d}` دقیقه یک پست**\n\n"
-        "لطفاً فاصله زمانی جدید را به **دقیقه** وارد کنید:\n"
-        "(مثلاً عدد `1` یعنی هر ۱ دقیقه، عدد `3` یعنی هر ۳ دقیقه، یا `0.5` یعنی هر ۳۰ ثانیه):"
+        "⏱️ **تنظیم زمان‌بندی و سرعت ارسال خودکار:**\n\n"
+        f"📌 **سرعت فعلی:** {cur_desc}\n\n"
+        "💡 **می‌توانید به هر یک از روش‌های زیر مقدار دلخواه را ارسال کنید:**\n\n"
+        "1️⃣ **روش فاصله زمانی (بر حسب دقیقه):**\n"
+        "• عدد `1` 👈 هر ۱ دقیقه یک ارسال\n"
+        "• عدد `3` 👈 هر ۳ دقیقه یک ارسال\n"
+        "• عدد `0.5` 👈 هر ۳۰ ثانیه یک ارسال\n\n"
+        "2️⃣ **روش تعداد در زمان (تعداد در دقیقه):**\n"
+        "• `2 در 1` (یا `2/1`) 👈 ۲ بار در هر ۱ دقیقه (هر ۳۰ ثانیه)\n"
+        "• `3 در 5` (یا `3/5`) 👈 ۳ بار در هر ۵ دقیقه (هر ۱۰۰ ثانیه)\n"
+        "• `5 در 1` (یا `5/1`) 👈 ۵ بار در هر ۱ دقیقه (هر ۱۲ ثانیه)\n\n"
+        "لطفاً مقدار دلخواه خود را بفرستید:"
     )
     
     await query.edit_message_text(
@@ -584,26 +634,25 @@ async def cb_start_set_delay(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return STATE_WAIT_DELAY
 
 async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ذخیره فاصله زمانی جدید"""
+    """ذخیره زمان‌بندی و سرعت جدید"""
     if not is_admin(update.effective_user.id):
         return ConversationHandler.END
         
-    text = update.message.text.strip().replace("٫", ".")
-    try:
-        minutes = float(text)
-        if minutes <= 0:
-            raise ValueError()
-    except ValueError:
-        await update.message.reply_text("⚠️ لطفاً یک عدد معتبر (مثلاً 1 یا 2 یا 5) وارد کنید.")
+    text = update.message.text.strip()
+    total_seconds, desc = parse_schedule_input(text)
+    
+    if total_seconds is None:
+        await update.message.reply_text(
+            f"⚠️ {desc}\nلطفاً مثلاً بفرستید `1` یا `2 در 1` یا `3/5`:",
+            reply_markup=build_cancel_keyboard()
+        )
         return STATE_WAIT_DELAY
         
-    seconds = max(15, int(minutes * 60))
-    await set_setting("min_delay", str(seconds))
-    await set_setting("max_delay", str(seconds + 15))
+    await set_setting("min_delay", str(total_seconds))
+    await set_setting("max_delay", str(total_seconds + 5))
     
-    min_display = f"{minutes:g}"
     await update.message.reply_text(
-        f"✅ **زمان‌بندی ارسال با موفقیت تنظیم شد!**\n🕒 سرورها **هر {min_display} دقیقه یکبار** ارسال خواهند شد.",
+        f"✅ **سرعت ارسال با موفقیت تنظیم شد!**\n\n🕒 **برنامه جدید:** {desc}",
         reply_markup=build_main_keyboard(await get_setting("auto_send", "0") == "1"),
         parse_mode=ParseMode.MARKDOWN
     )

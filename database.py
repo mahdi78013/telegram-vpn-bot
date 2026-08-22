@@ -81,6 +81,18 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # جدول ثبت پست‌های ارسالی جهت پاکسازی خودکار پس از فیلتر شدن
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sent_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                config_ids TEXT NOT NULL,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER DEFAULT 0
+            )
+        """)
         
         # مقداردهی کانال پیش‌فرض در مقاصد
         await db.execute(
@@ -453,3 +465,53 @@ async def delete_destination(dest_id: int) -> bool:
         await db.execute("DELETE FROM destinations WHERE id = ?", (dest_id,))
         await db.commit()
         return True
+
+# ----------------- بخش پاکسازی خودکار پست‌های سوخته از کانال -----------------
+
+async def record_sent_post(chat_id: str, message_id: int, config_ids: List[int]):
+    """ثبت شناسه پست و سرورهای آن جهت بررسی و پایش بعدی"""
+    cids_str = ",".join(str(cid) for cid in config_ids)
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        await db.execute(
+            "INSERT INTO sent_posts (chat_id, message_id, config_ids) VALUES (?, ?, ?)",
+            (chat_id, message_id, cids_str)
+        )
+        await db.commit()
+
+async def get_uncleaned_posts(min_age_minutes: int = 60, limit: int = 15) -> List[Dict[str, Any]]:
+    """دریافت پست‌های ارسالی که زمان مشخصی از آنها گذشته و هنوز پاک نشده‌اند"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT id, chat_id, message_id, config_ids, sent_at 
+            FROM sent_posts 
+            WHERE is_deleted = 0 
+              AND (strftime('%s', 'now') - strftime('%s', sent_at)) >= (? * 60)
+            ORDER BY sent_at ASC 
+            LIMIT ?
+            """,
+            (min_age_minutes, limit)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+async def mark_post_deleted(post_record_id: int):
+    """علامت‌گذاری پست به عنوان پاک شده"""
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        await db.execute("UPDATE sent_posts SET is_deleted = 1 WHERE id = ?", (post_record_id,))
+        await db.commit()
+
+async def get_raw_configs_by_ids(config_ids: List[int]) -> List[str]:
+    """دریافت کانفیگ‌های خام بر اساس شناسه‌ها"""
+    if not config_ids:
+        return []
+    placeholders = ",".join("?" for _ in config_ids)
+    async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
+        async with db.execute(
+            f"SELECT raw_config FROM configs WHERE id IN ({placeholders})",
+            tuple(config_ids)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+

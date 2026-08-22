@@ -149,7 +149,7 @@ async def get_main_menu_text() -> str:
     
     auto_send = "فعال 🟢" if settings.get("auto_send", "0") == "1" else "غیرفعال 🔴"
     batch_size = settings.get("batch_size", "3")
-    source_mode = settings.get("source_mode", "vip")
+    source_mode = settings.get("source_mode", "mahsa")
     source_title = "🚀 نت ملی VIP (۲۴ ساعته ابری)" if source_mode == "vip" else "🌐 مخازن آنلاین (مهسا نت)"
     
     try:

@@ -209,35 +209,40 @@ async def delete_source(source_id: int) -> bool:
 
 async def add_configs_bulk(configs: List[str]) -> Tuple[int, int]:
     """
-    افزودن دسته‌ای کانفیگ‌ها به دیتابیس
+    افزودن دسته‌ای کانفیگ‌ها به دیتابیس با سرعت بالا (Bulk Insertion با executemany)
     خروجی: (تعداد اضافه شده, تعداد تکراری)
     """
-    added = 0
-    duplicates = 0
-    
+    items_to_insert = []
+    for raw_c in configs:
+        raw_c = raw_c.strip()
+        if not raw_c:
+            continue
+        sig = get_config_core_signature(raw_c)
+        proto = raw_c.split("://", 1)[0] if "://" in raw_c else "custom"
+        items_to_insert.append((raw_c, sig, proto))
+        
+    if not items_to_insert:
+        return 0, 0
+        
     async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
-        for raw_c in configs:
-            raw_c = raw_c.strip()
-            if not raw_c:
-                continue
-                
-            sig = get_config_core_signature(raw_c)
-            proto = raw_c.split("://", 1)[0] if "://" in raw_c else "custom"
-            
-            try:
-                await db.execute(
-                    """
-                    INSERT INTO configs (raw_config, core_signature, protocol, last_ping_status, ping_ms) 
-                    VALUES (?, ?, ?, -1, -1)
-                    """,
-                    (raw_c, sig, proto)
-                )
-                added += 1
-            except aiosqlite.IntegrityError:
-                duplicates += 1
-                
+        cursor = await db.cursor()
+        await cursor.execute("SELECT COUNT(*) FROM configs")
+        count_before = (await cursor.fetchone())[0]
+        
+        await cursor.executemany(
+            """
+            INSERT OR IGNORE INTO configs (raw_config, core_signature, protocol, last_ping_status, ping_ms) 
+            VALUES (?, ?, ?, -1, -1)
+            """,
+            items_to_insert
+        )
         await db.commit()
         
+        await cursor.execute("SELECT COUNT(*) FROM configs")
+        count_after = (await cursor.fetchone())[0]
+        
+    added = count_after - count_before
+    duplicates = len(items_to_insert) - added
     return added, duplicates
 
 async def update_config_ping(config_id: int, is_online: bool, ping_ms: int):
@@ -255,20 +260,19 @@ async def update_config_ping(config_id: int, is_online: bool, ping_ms: int):
         await db.commit()
 
 async def update_configs_ping_bulk(results: List[Tuple[int, bool, int]]):
-    """ثبت گروهی نتایج پینگ کانفیگ‌ها"""
+    """ثبت گروهی نتایج پینگ کانفیگ‌ها با executemany"""
     if not results:
         return
+    params = [(1 if is_online else 0, ping, cid) for cid, is_online, ping in results]
     async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
-        for cid, is_online, ping in results:
-            status_code = 1 if is_online else 0
-            await db.execute(
-                """
-                UPDATE configs 
-                SET last_ping_status = ?, ping_ms = ?, last_ping_time = CURRENT_TIMESTAMP 
-                WHERE id = ?
-                """,
-                (status_code, ping, cid)
-            )
+        await db.executemany(
+            """
+            UPDATE configs 
+            SET last_ping_status = ?, ping_ms = ?, last_ping_time = CURRENT_TIMESTAMP 
+            WHERE id = ?
+            """,
+            params
+        )
         await db.commit()
 
 async def get_configs_for_health_check(limit: int = 100) -> List[Dict[str, Any]]:
@@ -292,8 +296,7 @@ async def get_configs_for_health_check(limit: int = 100) -> List[Dict[str, Any]]
 
 async def get_next_config_to_send() -> Optional[Dict[str, Any]]:
     """
-    انتخاب کانفیگ بعدی برای ارسال بر اساس چرخه فعلی.
-    فقط سرورهایی که پینگ داشته‌اند یا هنوز در صف تست هستند انتخاب می‌شوند.
+    انتخاب سریع کانفیگ بعدی برای ارسال بر اساس چرخه فعلی و اولویت پینگ سبز
     """
     async with aiosqlite.connect(DB_PATH, timeout=10.0) as db:
         db.row_factory = aiosqlite.Row
@@ -304,13 +307,15 @@ async def get_next_config_to_send() -> Optional[Dict[str, Any]]:
             
         current_cycle = int(cur_cycle_str) if cur_cycle_str.isdigit() else 1
         
-        # 1. جستجوی کانفیگ زنده در دور فعلی
+        # 1. جستجوی کانفیگ زنده در دور فعلی با اولویت پینگ پایین
         async with db.execute(
             """
             SELECT id, raw_config, protocol, sent_in_cycle, ping_ms, last_ping_status 
             FROM configs 
             WHERE is_active = 1 AND (last_ping_status != 0 OR last_ping_status IS NULL) AND sent_in_cycle < ? 
-            ORDER BY RANDOM() 
+            ORDER BY 
+                CASE WHEN last_ping_status = 1 THEN 0 ELSE 1 END,
+                ping_ms ASC
             LIMIT 1
             """,
             (current_cycle,)
@@ -320,7 +325,7 @@ async def get_next_config_to_send() -> Optional[Dict[str, Any]]:
         if row:
             return dict(row)
             
-        # 2. بررسی وجود کانفیگ فعال
+        # 2. بررسی وجود کانفیگ فعال و چرخش چرخه در صورت نیاز
         async with db.execute("SELECT COUNT(*) FROM configs WHERE is_active = 1 AND (last_ping_status != 0 OR last_ping_status IS NULL)") as cursor:
             count_row = await cursor.fetchone()
             total_active = count_row[0] if count_row else 0

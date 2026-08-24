@@ -506,19 +506,17 @@ async def smart_channel_cleaner_loop(bot: Bot):
                     await mark_post_deleted(post_id)
                     continue
                     
-                # بررسی اینکه آیا تمام سرورهای این پست سوخته‌اند (۱۰ تست پینگ متوالی)
-                all_dead = True
-                for conf in raw_configs:
-                    is_dead = await verify_config_is_completely_dead_10x(conf, total_tests=10, timeout=1.5)
-                    if not is_dead:
-                        # حتی اگر ۱ سرور از ۱۰ تلاش پینگ دهد، پست نباید حذف شود
-                        all_dead = False
-                        break
+                # بررسی همزمان و موازی اینکه آیا تمام سرورهای این پست سوخته‌اند
+                async def check_single_dead(conf_str: str) -> bool:
+                    return await verify_config_is_completely_dead_10x(conf_str, total_tests=5, timeout=1.2)
+                    
+                dead_results = await asyncio.gather(*(check_single_dead(c) for c in raw_configs), return_exceptions=True)
+                all_dead = all(res is True for res in dead_results)
                         
                 if all_dead:
                     try:
                         await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                        logger.info(f"🗑️ پست {message_id} در {chat_id} پس از ۱۰ مرحله تست عدم اتصال، با موفقیت از کانال پاکسازی شد.")
+                        logger.info(f"🗑️ پست {message_id} در {chat_id} پس از تست عدم اتصال، با موفقیت از کانال پاکسازی شد.")
                     except Exception as e:
                         logger.warning(f"عدم امکان حذف پیام {message_id} در {chat_id}: {e}")
                     await mark_post_deleted(post_id)

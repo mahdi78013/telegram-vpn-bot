@@ -102,13 +102,74 @@ def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
         logger.debug(f"Error parsing url config: {e}")
         return None
 
+class QuicUdpClientProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.transport = None
+        self.received = asyncio.Event()
+        self.data = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        self.data = data
+        self.received.set()
+
+    def error_received(self, exc):
+        pass
+
+async def ping_quic_udp(host: str, port: int, timeout: float = 2.5) -> Tuple[bool, int]:
+    """
+    تست پروب هوشمند QUIC/UDP برای پروتکل‌های Hysteria 2, Hysteria 1 و TUIC
+    """
+    loop = asyncio.get_running_loop()
+    start_time = time.perf_counter()
+    transport = None
+    try:
+        # ساخت یک پکت استاندارد کاوشگر QUIC Initial (RFC 9000)
+        quic_probe = bytearray(1200)
+        quic_probe[0] = 0xc0  # Long header, Initial
+        quic_probe[1:5] = (1).to_bytes(4, byteorder='big') # Version 1
+        quic_probe[5] = 8 # DCID Len
+        quic_probe[6:14] = os.urandom(8) # Random DCID
+        quic_probe[14] = 0 # SCID Len
+        quic_probe[15] = 0 # Token Length
+        quic_probe[16:18] = (1180).to_bytes(2, byteorder='big') # Length
+
+        protocol = QuicUdpClientProtocol()
+        transport, _ = await loop.create_datagram_endpoint(
+            lambda: protocol,
+            remote_addr=(host, port)
+        )
+        transport.sendto(bytes(quic_probe))
+        
+        try:
+            await asyncio.wait_for(protocol.received.wait(), timeout=timeout)
+            rtt = max(1, int((time.perf_counter() - start_time) * 1000))
+            if rtt <= MAX_ACCEPTABLE_PING_MS:
+                return True, rtt
+            return False, -1
+        except (asyncio.TimeoutError, TimeoutError):
+            # فال‌بک به تست سوکت پورت
+            conn_coro = asyncio.open_connection(host, port)
+            reader, writer = await asyncio.wait_for(conn_coro, timeout=timeout * 0.7)
+            writer.close()
+            await writer.wait_closed()
+            rtt = max(1, int((time.perf_counter() - start_time) * 1000))
+            return True, rtt
+    except Exception:
+        return False, -1
+    finally:
+        if transport:
+            transport.close()
+
 async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, int]:
     """
     تستر عمیق، چندلایه‌ای و فوق‌دقیق پروتکل (Deep Handshake & Protocol Probe):
-    1. تست اتصال TCP
-    2. تست هندشیک وب‌سوکت واقعی (101 Switching Protocols) جهت شناسایی سرورهای زنده واقعی
+    1. تست UDP/QUIC برای Hysteria 2 و TUIC
+    2. تست هندشیک وب‌سوکت واقعی (101 Switching Protocols)
     3. تست دست‌تکانی کامل TLS 1.3 / Reality
-    4. فیلتر کردن سرورهای کند با پینگ بالای 1000 میلی‌ثانیه
+    4. فیلتر کردن سرورهای کند با پینگ بالای MAX_ACCEPTABLE_PING_MS
     خروجی: (آیا متصل و پرسرعت است؟, تاخیر بر حسب میلی‌ثانیه)
     """
     info = extract_host_port(config)
@@ -122,6 +183,11 @@ async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, i
     host_hdr = info["host_hdr"]
     use_tls = info["use_tls"]
     sni = info["sni"]
+    proto = info.get("protocol", "").lower()
+    
+    # لایه ۰: پروتکل‌های مبتنی بر QUIC/UDP (Hysteria 2 / TUIC)
+    if proto in ("hysteria", "hysteria2", "hy2", "tuic") or net in ("quic", "kcp", "hy2"):
+        return await ping_quic_udp(host, port, timeout=timeout)
     
     start_time = time.perf_counter()
     writer = None

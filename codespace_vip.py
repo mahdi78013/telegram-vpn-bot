@@ -297,88 +297,16 @@ async def get_latest_codespace_config(
     region: str = "all"
 ) -> Dict[str, Any]:
     """
-    استخراج و تحویل پرسرعت‌ترین و پایدارترین کانفیگ ابری:
-    1. اولویت اول: سرور ابری اختصاصی ۲۴ ساعته GitHub Actions با مسیریابی مستقیم و Clean IP
-    2. اولویت دوم: استخراج برترین نود Reality از موتور پیشرفته ConfigDeliveryEngine
+    استخراج و تحویل پرسرعت‌ترین و پایدارترین کانفیگ ابری با تضمین اتصال در ایران:
+    اولویت ۱: استخراج برترین نود ضد فیلتر VLESS Reality / Hysteria 2 از موتور پیشرفته تحویل
     """
-    from node_registry import registry, CandidateNode, NodeHealth, NetworkContext
+    from node_registry import NetworkContext
     from config_delivery_engine import delivery_engine
     
-    # ۱. بررسی وجود و سلامت نود ابری اختصاصی
-    config_data = None
-    if os.path.exists(LOCAL_LIVE_PATH):
-        try:
-            with open(LOCAL_LIVE_PATH, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except Exception as e:
-            logger.warning(f"Error reading local live_vip.json: {e}")
-            
-    if config_data and "domain" in config_data:
-        domain = config_data.get("domain", "").strip()
-        uuid = config_data.get("uuid", "f12abdbd-23a8-414b-a89e-c447be5ba57d").strip()
-        
-        if domain:
-            link_direct = (
-                f"vless://{uuid}@{domain}:443?"
-                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1"
-                f"#🇩🇪 ⚡VIP-Turbo-Direct {tag}"
-            )
-            link_mci = (
-                f"vless://{uuid}@{FASTEST_MCI_IP}:443?"
-                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
-                f"#📡 ⚡VIP-HamrahAvval {tag}"
-            )
-            link_mtn = (
-                f"vless://{uuid}@{FASTEST_MTN_IP}:443?"
-                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
-                f"#📱 ⚡VIP-Irancell {tag}"
-            )
-            link_wifi = (
-                f"vless://{uuid}@{FASTEST_TURBO_IP}:443?"
-                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
-                f"#📶 ⚡VIP-Turbo-4KStream {tag}"
-            )
-            
-            # ثبت در رجیستری برای تقویت L2 استخر
-            node_vip = CandidateNode(
-                id=999999,
-                raw_config=link_direct,
-                protocol="vless",
-                score=99.0,
-                health_state=NodeHealth.HEALTHY,
-                ping_ms=55,
-                ttfb_ms=50,
-                carrier_scores={"mci": 99.0, "mtn": 99.0, "wifi": 99.0}
-            )
-            registry._l2_pool[node_vip.id] = node_vip
-            
-            # انتخاب لینک مناسب اپراتور
-            chosen_link = link_direct
-            if carrier == "mci":
-                chosen_link = link_mci
-            elif carrier == "mtn":
-                chosen_link = link_mtn
-            elif carrier == "wifi":
-                chosen_link = link_wifi
-                
-            return {
-                "direct": chosen_link,
-                "mci": link_mci,
-                "mtn": link_mtn,
-                "wifi": link_wifi,
-                "ping": 55,
-                "flag": "🇩🇪",
-                "proto": "VLESS Cloud-VIP",
-                "tag": tag,
-                "score": 99.0,
-                "cache_level": "Dedicated-Cloud-VIP",
-                "is_reality": False
-            }
-
-    # ۲. فال‌بک به موتور سراسری تحویل کانفیگ
     context = NetworkContext(carrier=carrier, region=region)
     result = await delivery_engine.get_best_config(context=context, tag=tag)
     direct_conf = result["direct"]
+    
     return {
         "direct": direct_conf,
         "mci": direct_conf,
@@ -388,7 +316,7 @@ async def get_latest_codespace_config(
         "flag": result.get("flag", "🇩🇪"),
         "proto": result.get("proto", "VLESS Reality"),
         "tag": tag,
-        "score": result.get("score", 85.0),
+        "score": result.get("score", 95.0),
         "cache_level": result.get("cache_level", "L1-Memory"),
         "is_reality": True
     }

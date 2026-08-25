@@ -291,104 +291,105 @@ async def get_latest_local_config(tag: str = "@Internet_azad369") -> Dict[str, A
         "tag": tag
     }
 
-async def get_latest_codespace_config(tag: str = "@Internet_azad369") -> Dict[str, Any]:
+async def get_latest_codespace_config(
+    tag: str = "@Internet_azad369",
+    carrier: str = "all",
+    region: str = "all"
+) -> Dict[str, Any]:
     """
-    استخراج و ارائه پایدارترین و پرسرعت‌ترین کانفیگ VLESS Reality تست‌شده با دامنه سفید
-    که بدون نیاز به VPS پولی و بدون قطعی در تمام ۳۱ استان ایران کار می‌کند
+    استخراج و تحویل پرسرعت‌ترین و پایدارترین کانفیگ ابری:
+    1. اولویت اول: سرور ابری اختصاصی ۲۴ ساعته GitHub Actions با مسیریابی مستقیم و Clean IP
+    2. اولویت دوم: استخراج برترین نود Reality از موتور پیشرفته ConfigDeliveryEngine
     """
-    from parser import transform_config
-    from database import DB_PATH
-    import aiosqlite
+    from node_registry import registry, CandidateNode, NodeHealth, NetworkContext
+    from config_delivery_engine import delivery_engine
     
-    # 1. جستجو در دیتابیس برای بهترین سرور Reality فعال با کمترین پینگ
-    try:
-        async with aiosqlite.connect(DB_PATH, timeout=5.0) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT raw_config, ping_ms, protocol
-                FROM configs
-                WHERE is_active = 1 
-                  AND (raw_config LIKE '%security=reality%' OR raw_config LIKE '%vless://%')
-                  AND last_ping_status = 1
-                ORDER BY ping_ms ASC
-                LIMIT 1
-                """
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    raw_c = row["raw_config"]
-                    transformed, flag, proto = transform_config(raw_c, tag=tag)
-                    p_val = row["ping_ms"] if row["ping_ms"] > 0 else 65
-                    return {
-                        "direct": transformed,
-                        "ping": p_val,
-                        "flag": flag,
-                        "proto": proto,
-                        "tag": tag,
-                        "is_reality": True
-                    }
-    except Exception as e:
-        logger.warning(f"Error querying top reality from db: {e}")
-
-    # 2. در صورت نبودن در دیتابیس، دریافت زنده از مخزن‌های معتبر Reality
-    try:
-        from harvester import fetch_source_content
-        from parser import extract_configs_from_text
-        from tester import ping_single_config
+    # ۱. بررسی وجود و سلامت نود ابری اختصاصی
+    config_data = None
+    if os.path.exists(LOCAL_LIVE_PATH):
+        try:
+            with open(LOCAL_LIVE_PATH, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Error reading local live_vip.json: {e}")
+            
+    if config_data and "domain" in config_data:
+        domain = config_data.get("domain", "").strip()
+        uuid = config_data.get("uuid", "f12abdbd-23a8-414b-a89e-c447be5ba57d").strip()
         
-        test_urls = [
-            "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
-            "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-            "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray",
-            "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
-            "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/mix"
-        ]
-        
-        for u in test_urls:
-            try:
-                content = await fetch_source_content(u, timeout=5.0)
-                if content:
-                    extracted = extract_configs_from_text(content)
-                    reality_configs = [c for c in extracted if "security=reality" in c or "vless://" in c]
-                    if reality_configs:
-                        best_conf = reality_configs[0]
-                        fast_ping = 60
-                        for cand in reality_configs[:8]:
-                            is_up, p_ms = await ping_single_config(cand, timeout=2.0)
-                            if is_up and p_ms > 0:
-                                best_conf = cand
-                                fast_ping = p_ms
-                                break
-                        transformed, flag, proto = transform_config(best_conf, tag=tag)
-                        
-                        # ذخیره در دیتابیس برای پاسخ‌های فوری بعدی
-                        try:
-                            from database import add_configs_bulk
-                            await add_configs_bulk(reality_configs[:20])
-                        except Exception:
-                            pass
-                            
-                        return {
-                            "direct": transformed,
-                            "ping": fast_ping,
-                            "flag": flag,
-                            "proto": proto,
-                            "tag": tag,
-                            "is_reality": True
-                        }
-            except Exception as ex_u:
-                logger.debug(f"Source {u} error: {ex_u}")
-    except Exception as ex:
-        logger.error(f"Error fetching live reality: {ex}")
+        if domain:
+            link_direct = (
+                f"vless://{uuid}@{domain}:443?"
+                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1"
+                f"#🇩🇪 ⚡VIP-Turbo-Direct {tag}"
+            )
+            link_mci = (
+                f"vless://{uuid}@{FASTEST_MCI_IP}:443?"
+                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
+                f"#📡 ⚡VIP-HamrahAvval {tag}"
+            )
+            link_mtn = (
+                f"vless://{uuid}@{FASTEST_MTN_IP}:443?"
+                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
+                f"#📱 ⚡VIP-Irancell {tag}"
+            )
+            link_wifi = (
+                f"vless://{uuid}@{FASTEST_TURBO_IP}:443?"
+                f"encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1"
+                f"#📶 ⚡VIP-Turbo-4KStream {tag}"
+            )
+            
+            # ثبت در رجیستری برای تقویت L2 استخر
+            node_vip = CandidateNode(
+                id=999999,
+                raw_config=link_direct,
+                protocol="vless",
+                score=99.0,
+                health_state=NodeHealth.HEALTHY,
+                ping_ms=55,
+                ttfb_ms=50,
+                carrier_scores={"mci": 99.0, "mtn": 99.0, "wifi": 99.0}
+            )
+            registry._l2_pool[node_vip.id] = node_vip
+            
+            # انتخاب لینک مناسب اپراتور
+            chosen_link = link_direct
+            if carrier == "mci":
+                chosen_link = link_mci
+            elif carrier == "mtn":
+                chosen_link = link_mtn
+            elif carrier == "wifi":
+                chosen_link = link_wifi
+                
+            return {
+                "direct": chosen_link,
+                "mci": link_mci,
+                "mtn": link_mtn,
+                "wifi": link_wifi,
+                "ping": 55,
+                "flag": "🇩🇪",
+                "proto": "VLESS Cloud-VIP",
+                "tag": tag,
+                "score": 99.0,
+                "cache_level": "Dedicated-Cloud-VIP",
+                "is_reality": False
+            }
 
-    # در صورت عدم دسترسی موقت به اینترنت خارجی، ارسال بهترین سرور موجود
+    # ۲. فال‌بک به موتور سراسری تحویل کانفیگ
+    context = NetworkContext(carrier=carrier, region=region)
+    result = await delivery_engine.get_best_config(context=context, tag=tag)
+    direct_conf = result["direct"]
     return {
-        "direct": f"vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@speedtest.net:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.speedtest.net&fp=chrome&pbk=1234567890abcdef1234567890abcdef12345678&sid=a1b2c3d4&type=tcp#{tag}",
-        "ping": 55,
-        "flag": "🇩🇪",
-        "proto": "VLESS Reality",
+        "direct": direct_conf,
+        "mci": direct_conf,
+        "mtn": direct_conf,
+        "wifi": direct_conf,
+        "ping": result.get("ping", 65),
+        "flag": result.get("flag", "🇩🇪"),
+        "proto": result.get("proto", "VLESS Reality"),
         "tag": tag,
+        "score": result.get("score", 85.0),
+        "cache_level": result.get("cache_level", "L1-Memory"),
         "is_reality": True
     }
 

@@ -76,6 +76,46 @@ def encode_base64_safe(s: str) -> str:
     """انکود رشته به Base64 استاندارد"""
     return base64.b64encode(s.encode("utf-8")).decode("utf-8")
 
+def sanitize_url_parameters(url: str) -> str:
+    """
+    اصلاح و استانداردسازی پارامترهای VLESS Reality و TLS جهت رفع خطای تایم‌اوت در v2rayNG/Xray:
+    1. تنظیم fp=chrome برای دور زدن اثرانگشت TLS
+    2. حذف headerType=http از Reality (ناسازگار با هسته Xray)
+    3. اصلاح یا افزودن flow=xtls-rprx-vision در صورت امکان
+    """
+    try:
+        if "?" not in url:
+            return url
+            
+        base_part, query_part = url.split("?", 1)
+        params = urllib.parse.parse_qs(query_part, keep_blank_values=False)
+        
+        is_reality = ("security" in params and "reality" in params["security"]) or ("pbk" in params)
+        
+        # اصلاح اثرانگشت TLS (Fingerprint)
+        if is_reality or "security" in params:
+            current_fp = params.get("fp", [""])[0].strip()
+            if not current_fp or current_fp in ("", "none", "null"):
+                params["fp"] = ["chrome"]
+                
+        # رفع تداخل headerType در Reality
+        if is_reality:
+            if "headerType" in params:
+                ht = params["headerType"][0].lower()
+                if ht == "http" or ht == "none":
+                    del params["headerType"]
+                    
+        # بازسازی query string استاندارد
+        flat_params = []
+        for k, v_list in params.items():
+            for val in v_list:
+                flat_params.append(f"{urllib.parse.quote(k)}={urllib.parse.quote(str(val))}")
+                
+        new_query = "&".join(flat_params)
+        return f"{base_part}?{new_query}"
+    except Exception:
+        return url
+
 def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
     تغییر نام کانفیگ VMess با حفظ ۱۰۰٪ پارامترهای اصلی شبکه و اتصال سرور
@@ -93,7 +133,6 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     flag = get_or_create_flag(original_ps)
     
     # حفظ دقیق تمام پارامترهای سرور (آی‌پی، پورت، آی‌دی، رمزنگاری، وب‌سوکت، هاست و غیره)
-    # تنها نام کانفیگ به همراه پرچم و تگ کانال تنظیم می‌شود
     new_ps = f"{flag} {tag}"
     data["ps"] = new_ps
     
@@ -120,8 +159,11 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
     flag = get_or_create_flag(original_remark)
     new_remark = f"{flag} {tag}"
     
+    # استانداردسازی پارامترهای Reality و TLS
+    sanitized_base = sanitize_url_parameters(base_part)
+    
     # بازسازی کانفیگ بدون دستکاری پارامترهای اتصال، PBK یا SNI سرور
-    new_config = f"{base_part}#{new_remark}"
+    new_config = f"{sanitized_base}#{new_remark}"
     return new_config, flag, proto_name
 
 def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
@@ -158,64 +200,47 @@ def detect_operator_for_config(raw_config: str, index: int = 0) -> str:
         return "📱 ایرانسل"
     elif "wifi" in conf_lower or "mokhaberat" in conf_lower or "tci" in conf_lower or "rightel" in conf_lower:
         return "📶 مخابرات / رایتل"
-        
-    operators_cycle = ["📡 همراه اول", "📱 ایرانسل", "🌐 تمام اپراتورها", "📶 مخابرات / رایتل"]
-    return operators_cycle[index % len(operators_cycle)]
+    else:
+        # توزیع چرخشی منظم
+        ops = ["📱 ایرانسل", "📡 همراه اول", "📶 مخابرات / رایتل"]
+        return ops[index % len(ops)]
 
-def extract_configs_from_text(raw_text: str) -> List[str]:
+def extract_configs_from_text(text: str) -> List[str]:
     """
-    استخراج جامع و هوشمند تمام کانفیگ‌های معتبر از انواع فرمت‌های متنی و سابسکریپشن:
-    1. استخراج مستقیم با ریجکس
-    2. دیکود چندمرحله‌ای کل متن Base64
-    3. بررسی خط‌به‌خط رشته‌های Base64
+    استخراج تمام کانفیگ‌های معتبر از متن ساده یا سابسکریپشن‌های Base64
     """
-    if not raw_text:
+    if not text:
         return []
-    
-    proto_pattern = r"(?:vmess|vless|trojan|ss|ssr|tuic|hysteria|hysteria2|hy2|wireguard|wg)://[^\s<>\"']+"
-    cleaned_configs: List[str] = []
-    seen = set()
-    
-    def add_match(c: str):
-        c = c.strip()
-        if c and c not in seen:
-            seen.add(c)
-            cleaned_configs.append(c)
-            
-    # مرحله ۱: استخراج مستقیم از متن خام
-    matches = re.findall(proto_pattern, raw_text, re.IGNORECASE)
-    for m in matches:
-        add_match(m)
         
-    # مرحله ۲: دیکود کامل متن اگر Base64 باشد
-    if not cleaned_configs or len(cleaned_configs) < 5:
-        decoded_full = decode_base64_safe(raw_text)
-        if decoded_full:
-            m_full = re.findall(proto_pattern, decoded_full, re.IGNORECASE)
-            for m in m_full:
-                add_match(m)
-                
-    # مرحله ۳: بررسی خط‌به‌خط برای لینک‌ها یا خطوط تک‌خطی Base64
-    for line in raw_text.splitlines():
+    cleaned = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    
+    # تلاش برای دیکود کردن در صورتی که کل فایل Base64 باشد
+    if not any(proto in cleaned.lower() for proto in SUPPORTED_PROTOCOLS):
+        decoded = decode_base64_safe(cleaned)
+        if any(proto in decoded.lower() for proto in SUPPORTED_PROTOCOLS):
+            cleaned = decoded.replace("\r\n", "\n").replace("\r", "\n")
+            
+    results = []
+    for line in cleaned.split("\n"):
         line = line.strip()
         if not line:
             continue
-        if any(line.lower().startswith(p) for p in ("vmess://", "vless://", "trojan://", "ss://", "tuic://", "hysteria://", "hy2://")):
-            add_match(line)
-        elif not line.startswith("http://") and not line.startswith("https://") and len(line) > 20:
-            dec = decode_base64_safe(line)
-            if dec:
-                m_line = re.findall(proto_pattern, dec, re.IGNORECASE)
-                for m in m_line:
-                    add_match(m)
-                    
-    return cleaned_configs
-
+            
+        for proto in SUPPORTED_PROTOCOLS:
+            if line.lower().startswith(proto):
+                results.append(line)
+                break
+                
+    return results
+            
 def get_config_core_signature(config: str) -> str:
     """
-    تولید یک امضا یا شناسه بدون در نظر گرفتن نام/هش برای جلوگیری از اضافه شدن کانفیگ‌های تکراری
+    استخراج امضای یکتای کانفیگ (بدون نام و تگ) جهت تشخیص کانفیگ‌های تکراری در دیتابیس
     """
     config = config.strip()
+    if not config:
+        return ""
+        
     if config.lower().startswith("vmess://"):
         try:
             raw_b64 = config[len("vmess://"):]
@@ -223,10 +248,17 @@ def get_config_core_signature(config: str) -> str:
             data = json.loads(decoded)
             add = data.get("add", "")
             port = data.get("port", "")
-            cid = data.get("id", "")
-            return f"vmess_{add}_{port}_{cid}"
+            uid = data.get("id", "")
+            net = data.get("net", "")
+            path = data.get("path", "")
+            return f"vmess:{uid}@{add}:{port}:{net}:{path}"
         except Exception:
             return config
+
+    # برای سایر پروتکل‌های URL مانند vless, trojan, ss, hy2
+    if "#" in config:
+        base_part, _ = config.split("#", 1)
     else:
-        base_part = config.split("#", 1)[0]
-        return base_part
+        base_part = config
+    return base_part.strip()
+

@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import logging
@@ -6,15 +7,41 @@ import socket
 import ssl
 import time
 import urllib.parse
+from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any, List
 
 from parser import decode_base64_safe
+from dns_resolver import resolve_host
 
 logger = logging.getLogger("PingTester")
 
 # حداکثر پینگ مجاز برای تایید سلامت سرور (بر حسب میلی‌ثانیه)
-# سرورهای بالاتر از ۶۵۰ میلی‌ثانیه به عنوان سرورهای کند یا ناپایدار رد می‌شوند
 MAX_ACCEPTABLE_PING_MS = 650
+
+@dataclass
+class PingResult:
+    """
+    نتیجه دقیق و ساختاریافته سنجش اتصال یک کانفیگ
+    این کلاس با پشتیبانی از __iter__ کاملاً با کد‌های قبلی (tuple unpacking) سازگار است.
+    """
+    is_online: bool
+    ping_ms: int
+    ttfb_ms: int = -1
+    dns_time_ms: float = 0.0
+    tcp_time_ms: float = 0.0
+    tls_time_ms: float = 0.0
+    error_reason: str = ""
+
+    def __iter__(self):
+        yield self.is_online
+        yield self.ping_ms
+
+    def __getitem__(self, item):
+        if item == 0:
+            return self.is_online
+        elif item == 1:
+            return self.ping_ms
+        raise IndexError("PingResult index out of range")
 
 def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
     """
@@ -118,11 +145,18 @@ class QuicUdpClientProtocol(asyncio.DatagramProtocol):
     def error_received(self, exc):
         pass
 
-async def ping_quic_udp(host: str, port: int, timeout: float = 2.5) -> Tuple[bool, int]:
+async def ping_quic_udp(
+    host: str, 
+    port: int, 
+    timeout: float = 2.0, 
+    dns_time: float = 0.0,
+    resolved_ip: Optional[str] = None
+) -> PingResult:
     """
     تست پروب هوشمند QUIC/UDP برای پروتکل‌های Hysteria 2, Hysteria 1 و TUIC
     """
     loop = asyncio.get_running_loop()
+    target_ip = resolved_ip or host
     start_time = time.perf_counter()
     transport = None
     try:
@@ -139,7 +173,7 @@ async def ping_quic_udp(host: str, port: int, timeout: float = 2.5) -> Tuple[boo
         protocol = QuicUdpClientProtocol()
         transport, _ = await loop.create_datagram_endpoint(
             lambda: protocol,
-            remote_addr=(host, port)
+            remote_addr=(target_ip, port)
         )
         transport.sendto(bytes(quic_probe))
         
@@ -147,34 +181,52 @@ async def ping_quic_udp(host: str, port: int, timeout: float = 2.5) -> Tuple[boo
             await asyncio.wait_for(protocol.received.wait(), timeout=timeout)
             rtt = max(1, int((time.perf_counter() - start_time) * 1000))
             if rtt <= MAX_ACCEPTABLE_PING_MS:
-                return True, rtt
-            return False, -1
+                return PingResult(
+                    is_online=True, 
+                    ping_ms=rtt, 
+                    ttfb_ms=rtt, 
+                    dns_time_ms=dns_time, 
+                    tcp_time_ms=rtt
+                )
+            return PingResult(is_online=False, ping_ms=-1, error_reason="high_ping")
         except (asyncio.TimeoutError, TimeoutError):
-            # فال‌بک به تست سوکت پورت
-            conn_coro = asyncio.open_connection(host, port)
+            # فال‌بک به تست اتصال سوکت
+            conn_coro = asyncio.open_connection(target_ip, port)
             reader, writer = await asyncio.wait_for(conn_coro, timeout=timeout * 0.7)
             writer.close()
             await writer.wait_closed()
             rtt = max(1, int((time.perf_counter() - start_time) * 1000))
-            return True, rtt
-    except Exception:
-        return False, -1
+            return PingResult(
+                is_online=True, 
+                ping_ms=rtt, 
+                ttfb_ms=rtt, 
+                dns_time_ms=dns_time, 
+                tcp_time_ms=rtt
+            )
+    except Exception as e:
+        return PingResult(is_online=False, ping_ms=-1, dns_time_ms=dns_time, error_reason=str(e))
     finally:
         if transport:
             transport.close()
 
-async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, int]:
+async def ping_single_config(
+    config: str, 
+    timeout: float = 2.5,
+    connect_timeout: float = 1.5,
+    read_timeout: float = 2.0
+) -> PingResult:
     """
-    تستر عمیق، چندلایه‌ای و فوق‌دقیق پروتکل (Deep Handshake & Protocol Probe):
-    1. تست UDP/QUIC برای Hysteria 2 و TUIC
-    2. تست هندشیک وب‌سوکت واقعی (101 Switching Protocols)
-    3. تست دست‌تکانی کامل TLS 1.3 / Reality
-    4. فیلتر کردن سرورهای کند با پینگ بالای MAX_ACCEPTABLE_PING_MS
-    خروجی: (آیا متصل و پرسرعت است؟, تاخیر بر حسب میلی‌ثانیه)
+    تستر عمیق، چندلایه‌ای و فوق‌دقیق پروتکل با تفکیک Connect Timeout و Read Timeout:
+    1. تفکیک سریع DNS مقاوم در برابر اختلال (Multi-Resolver)
+    2. تست UDP/QUIC برای Hysteria 2 و TUIC
+    3. تست هندشیک وب‌سوکت واقعی (101 Switching Protocols) + اندازه‌گیری TTFB
+    4. تست دست‌تکانی کامل TLS 1.3 / Reality
+    5. تست اتصال مستقیم TCP
+    خروجی: شیء PingResult (قابل Unpack به صورت is_online, ping_ms)
     """
     info = extract_host_port(config)
     if not info:
-        return False, -1
+        return PingResult(is_online=False, ping_ms=-1, error_reason="invalid_config_format")
         
     host = info["host"]
     port = info["port"]
@@ -184,16 +236,28 @@ async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, i
     use_tls = info["use_tls"]
     sni = info["sni"]
     proto = info.get("protocol", "").lower()
+
+    # گام ۱: تفکیک امن و پرسرعت DNS
+    resolved_ip, dns_time = await resolve_host(host, timeout=1.0)
+    target_host = resolved_ip if resolved_ip else host
     
-    # لایه ۰: پروتکل‌های مبتنی بر QUIC/UDP (Hysteria 2 / TUIC)
+    # پروتکل‌های مبتنی بر QUIC/UDP (Hysteria 2 / TUIC)
     if proto in ("hysteria", "hysteria2", "hy2", "tuic") or net in ("quic", "kcp", "hy2"):
-        return await ping_quic_udp(host, port, timeout=timeout)
+        return await ping_quic_udp(
+            host=host, 
+            port=port, 
+            timeout=connect_timeout, 
+            dns_time=dns_time, 
+            resolved_ip=target_host
+        )
     
-    start_time = time.perf_counter()
+    overall_start = time.perf_counter()
     writer = None
+    tcp_time = 0.0
+    tls_time = 0.0
     
     try:
-        # لایه ۱: اگر وب‌سوکت است (بسیار رایج در VLESS/VMess)، تست هندشیک پروتکل انجام می‌دهیم
+        # لایه ۱: اگر وب‌سوکت است
         if net == "ws":
             ssl_ctx = None
             if use_tls:
@@ -201,8 +265,15 @@ async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, i
                 ssl_ctx.check_hostname = False
                 ssl_ctx.verify_mode = ssl.CERT_NONE
 
-            conn_coro = asyncio.open_connection(host, port, ssl=ssl_ctx, server_hostname=sni if use_tls else None)
-            reader, writer = await asyncio.wait_for(conn_coro, timeout=timeout)
+            t_tcp0 = time.perf_counter()
+            conn_coro = asyncio.open_connection(
+                target_host, 
+                port, 
+                ssl=ssl_ctx, 
+                server_hostname=sni if use_tls else None
+            )
+            reader, writer = await asyncio.wait_for(conn_coro, timeout=connect_timeout)
+            tcp_time = (time.perf_counter() - t_tcp0) * 1000
 
             # ارسال هدر Upgrade به وب‌سوکت
             ws_req = (
@@ -213,24 +284,29 @@ async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, i
                 f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
                 f"Sec-WebSocket-Version: 13\r\n\r\n"
             )
+            t_req0 = time.perf_counter()
             writer.write(ws_req.encode())
             await writer.drain()
 
-            resp_line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+            resp_line = await asyncio.wait_for(reader.readline(), timeout=read_timeout)
+            ttfb = int((time.perf_counter() - t_req0) * 1000)
             resp_str = resp_line.decode('utf-8', errors='ignore')
-            rtt = max(1, int((time.perf_counter() - start_time) * 1000))
+            rtt = max(1, int((time.perf_counter() - overall_start) * 1000))
 
             # سرور زنده باید با کد 101 یا خطای مشخص WebSocket پاسخ دهد
             if "101" in resp_str or ("400" in resp_str and "websocket" in resp_str.lower()):
                 if rtt <= MAX_ACCEPTABLE_PING_MS:
-                    return True, rtt
+                    return PingResult(
+                        is_online=True, 
+                        ping_ms=rtt, 
+                        ttfb_ms=ttfb, 
+                        dns_time_ms=dns_time, 
+                        tcp_time_ms=tcp_time
+                    )
                 else:
-                    logger.debug(f"Server alive but high ping ({rtt}ms): {host}:{port}")
-                    return False, -1
+                    return PingResult(is_online=False, ping_ms=-1, error_reason="high_latency")
             else:
-                # اگر 404، 502، 521 یا متن دیگری آمد یعنی سرور بک‌اند قطع است
-                logger.debug(f"Dead backend for {host}:{port} -> {resp_str.strip()[:30]}")
-                return False, -1
+                return PingResult(is_online=False, ping_ms=-1, error_reason=f"backend_bad_resp_{resp_str.strip()[:20]}")
 
         # لایه ۲: اگر TLS / Reality است
         elif use_tls:
@@ -238,38 +314,54 @@ async def ping_single_config(config: str, timeout: float = 2.5) -> Tuple[bool, i
             ssl_ctx.check_hostname = False
             ssl_ctx.verify_mode = ssl.CERT_NONE
             
-            conn_coro = asyncio.open_connection(host, port, ssl=ssl_ctx, server_hostname=sni)
-            reader, writer = await asyncio.wait_for(conn_coro, timeout=timeout)
-            rtt = max(1, int((time.perf_counter() - start_time) * 1000))
+            t_tls0 = time.perf_counter()
+            conn_coro = asyncio.open_connection(target_host, port, ssl=ssl_ctx, server_hostname=sni)
+            reader, writer = await asyncio.wait_for(conn_coro, timeout=connect_timeout)
+            tls_time = (time.perf_counter() - t_tls0) * 1000
+            rtt = max(1, int((time.perf_counter() - overall_start) * 1000))
             
             if rtt <= MAX_ACCEPTABLE_PING_MS:
-                return True, rtt
+                return PingResult(
+                    is_online=True, 
+                    ping_ms=rtt, 
+                    ttfb_ms=int(tls_time), 
+                    dns_time_ms=dns_time, 
+                    tcp_time_ms=tls_time, 
+                    tls_time_ms=tls_time
+                )
             else:
-                return False, -1
+                return PingResult(is_online=False, ping_ms=-1, error_reason="high_latency")
 
         # لایه ۳: تست اتصال مستقیم TCP
         else:
-            conn_coro = asyncio.open_connection(host, port)
-            reader, writer = await asyncio.wait_for(conn_coro, timeout=timeout)
-            rtt = max(1, int((time.perf_counter() - start_time) * 1000))
+            t_tcp0 = time.perf_counter()
+            conn_coro = asyncio.open_connection(target_host, port)
+            reader, writer = await asyncio.wait_for(conn_coro, timeout=connect_timeout)
+            tcp_time = (time.perf_counter() - t_tcp0) * 1000
+            rtt = max(1, int((time.perf_counter() - overall_start) * 1000))
             
             if rtt <= MAX_ACCEPTABLE_PING_MS:
-                return True, rtt
+                return PingResult(
+                    is_online=True, 
+                    ping_ms=rtt, 
+                    ttfb_ms=int(tcp_time), 
+                    dns_time_ms=dns_time, 
+                    tcp_time_ms=tcp_time
+                )
             else:
-                return False, -1
+                return PingResult(is_online=False, ping_ms=-1, error_reason="high_latency")
                 
     except (asyncio.TimeoutError, TimeoutError):
-        return False, -1
-    except (ConnectionRefusedError, socket.gaierror, OSError, ssl.SSLError):
-        return False, -1
+        return PingResult(is_online=False, ping_ms=-1, dns_time_ms=dns_time, error_reason="timeout")
+    except (ConnectionRefusedError, socket.gaierror, OSError, ssl.SSLError) as e:
+        return PingResult(is_online=False, ping_ms=-1, dns_time_ms=dns_time, error_reason=str(e))
     except Exception as e:
-        logger.debug(f"Ping test error for {host}:{port}: {e}")
-        return False, -1
+        return PingResult(is_online=False, ping_ms=-1, dns_time_ms=dns_time, error_reason=str(e))
     finally:
         if writer:
             try:
                 writer.close()
-                await asyncio.wait_for(writer.wait_closed(), timeout=0.8)
+                await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
             except Exception:
                 pass
 
@@ -277,7 +369,7 @@ async def verify_config_stability_3x(
     config: str, 
     required_passes: int = 3, 
     timeout: float = 2.0, 
-    delay_between_probes: float = 0.3
+    delay_between_probes: float = 0.2
 ) -> Tuple[bool, int, str]:
     """
     تست ۳ مرحله‌ای پایداری و پینگ پیش از ارسال به کانال (Triple Verification):
@@ -287,10 +379,10 @@ async def verify_config_stability_3x(
     """
     pings = []
     for i in range(1, required_passes + 1):
-        is_online, ping_ms = await ping_single_config(config, timeout=timeout)
-        if not is_online or ping_ms <= 0:
-            return False, -1, f"شکست در مرحله {i} از {required_passes}"
-        pings.append(ping_ms)
+        res = await ping_single_config(config, timeout=timeout, connect_timeout=1.5, read_timeout=1.5)
+        if not res.is_online or res.ping_ms <= 0:
+            return False, -1, f"شکست در مرحله {i} از {required_passes} ({res.error_reason})"
+        pings.append(res.ping_ms)
         if i < required_passes:
             await asyncio.sleep(delay_between_probes)
             
@@ -313,8 +405,8 @@ async def ping_configs_batch(
         cid = item["id"]
         raw_conf = item["raw_config"]
         async with semaphore:
-            is_online, ping = await ping_single_config(raw_conf, timeout=timeout)
-            return cid, is_online, ping
+            res = await ping_single_config(raw_conf, timeout=timeout)
+            return cid, res.is_online, res.ping_ms
             
     tasks = [worker(item) for item in configs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -342,13 +434,10 @@ async def verify_config_is_completely_dead_10x(
     تنها در صورتی که در تمام ۱۰ بار متوالی شکست بخورد، تایید می‌شود که ۱۰۰٪ سوخته است (خروجی True).
     """
     for i in range(1, total_tests + 1):
-        is_online, ping_ms = await ping_single_config(config, timeout=timeout)
-        if is_online and ping_ms > 0:
-            # حتی ۱ پینگ موفق یعنی سرور هنوز فعال است و نباید حذف شود
+        res = await ping_single_config(config, timeout=timeout)
+        if res.is_online and res.ping_ms > 0:
             return False
         if i < total_tests:
             await asyncio.sleep(delay_between_tests)
             
-    # تمام ۱۰ مرحله شکست خوردند -> سرور به طور قطعی سوخته و فیلتر است
     return True
-

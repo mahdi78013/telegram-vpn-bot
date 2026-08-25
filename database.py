@@ -27,23 +27,76 @@ async def init_db():
         """)
 
         # اضافه کردن ستون‌های جدید به دیتابیس موجود در صورت عدم وجود (مهاجرت امن)
-        try:
-            await db.execute("ALTER TABLE configs ADD COLUMN ping_ms INTEGER DEFAULT -1")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE configs ADD COLUMN last_ping_status INTEGER DEFAULT -1")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE configs ADD COLUMN last_ping_time TIMESTAMP")
-        except Exception:
-            pass
+        columns_to_add = [
+            ("ping_ms", "INTEGER DEFAULT -1"),
+            ("last_ping_status", "INTEGER DEFAULT -1"),
+            ("last_ping_time", "TIMESTAMP"),
+            ("health_score", "REAL DEFAULT 0.0"),
+            ("health_state", "TEXT DEFAULT 'HEALTHY'"),
+            ("circuit_state", "TEXT DEFAULT 'CLOSED'"),
+            ("consecutive_failures", "INTEGER DEFAULT 0"),
+            ("last_success_at", "TIMESTAMP"),
+            ("ttfb_ms", "INTEGER DEFAULT -1"),
+            ("dns_time_ms", "REAL DEFAULT 0.0"),
+            ("tcp_time_ms", "REAL DEFAULT 0.0"),
+            ("tls_time_ms", "REAL DEFAULT 0.0"),
+        ]
+        for col_name, col_type in columns_to_add:
+            try:
+                await db.execute(f"ALTER TABLE configs ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
 
         # ساخت ایندکس‌های فوق‌سریع برای جستجو و چرخه ارسال
         await db.execute("CREATE INDEX IF NOT EXISTS idx_configs_active_ping ON configs(is_active, last_ping_status);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_configs_cycle ON configs(is_active, last_ping_status, sent_in_cycle);")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_configs_time ON configs(last_ping_time);")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_configs_score ON configs(health_score);")
+
+        # جدول ثبت تاریخچه پایش سلامت نودها
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS node_health_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id INTEGER NOT NULL,
+                score REAL,
+                health_state TEXT,
+                ping_ms INTEGER,
+                ttfb_ms INTEGER,
+                tested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # جدول متریک‌های بلادرنگ تله‌متری (Observability)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS performance_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                carrier TEXT,
+                network_type TEXT,
+                region TEXT,
+                latency_ms INTEGER,
+                ttfb_ms INTEGER,
+                retry_count INTEGER,
+                timeout_occurred INTEGER,
+                cache_hit INTEGER,
+                cache_level TEXT,
+                node_id INTEGER
+            )
+        """)
+
+        # جدول نقشه عملکرد منطقه‌ای و اپراتورها
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS regional_performance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                region TEXT NOT NULL,
+                carrier TEXT NOT NULL,
+                avg_latency INTEGER DEFAULT 0,
+                success_rate REAL DEFAULT 1.0,
+                total_samples INTEGER DEFAULT 0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(region, carrier)
+            )
+        """)
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sources (
@@ -573,4 +626,51 @@ async def get_raw_configs_by_ids(config_ids: List[int]) -> List[str]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
+
+# ----------------- بخش ثبت و تحلیل تله‌متری و سلامت نودها -----------------
+
+async def log_performance_metric(
+    timestamp: float,
+    carrier: str,
+    network_type: str,
+    region: str,
+    latency_ms: int,
+    ttfb_ms: int,
+    retry_count: int,
+    timeout_occurred: bool,
+    cache_hit: bool,
+    cache_level: str,
+    node_id: int
+):
+    """ثبت آمار یک درخواست در دیتابیس جهت تحلیل P50/P95 و سلامت شبکه"""
+    async with aiosqlite.connect(DB_PATH, timeout=5.0) as db:
+        await db.execute(
+            """
+            INSERT INTO performance_metrics (
+                timestamp, carrier, network_type, region, latency_ms, 
+                ttfb_ms, retry_count, timeout_occurred, cache_hit, cache_level, node_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp, carrier, network_type, region, latency_ms,
+                ttfb_ms, retry_count, 1 if timeout_occurred else 0,
+                1 if cache_hit else 0, cache_level, node_id
+            )
+        )
+        await db.commit()
+
+async def get_recent_performance_metrics(limit: int = 100) -> List[Dict[str, Any]]:
+    """دریافت آخرین لاگ‌های عملکردی برای داشبورد"""
+    async with aiosqlite.connect(DB_PATH, timeout=5.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT * FROM performance_metrics 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+            """,
+            (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
 

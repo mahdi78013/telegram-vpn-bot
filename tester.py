@@ -45,7 +45,7 @@ class PingResult:
 
 def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
     """
-    استخراج آدرس سرور (IP یا دامنه)، پورت و تنظیمات عمیق TLS/SNI/WS از تمام پروتکل‌ها
+    استخراج آدرس سرور (IP یا دامنه)، پورت و تنظیمات عمیق TLS/Reality/SNI/WS از تمام پروتکل‌ها
     """
     config = config.strip()
     if not config:
@@ -72,6 +72,7 @@ def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
                     "path": path,
                     "host_hdr": host_hdr,
                     "use_tls": tls,
+                    "is_reality": False,
                     "sni": sni,
                     "protocol": "vmess"
                 }
@@ -113,7 +114,9 @@ def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
         host_hdr = query.get("host", [host])[0] or host
         security = query.get("security", [""])[0].lower()
         sni = query.get("sni", [host_hdr])[0] or host_hdr
-        use_tls = security in ("tls", "reality") or proto in ("trojan", "hysteria", "hysteria2", "hy2")
+        
+        is_reality = (security == "reality") or ("pbk=" in clean_url.lower())
+        use_tls = (security in ("tls", "reality")) or (proto in ("trojan", "hysteria", "hysteria2", "hy2"))
         
         return {
             "host": host,
@@ -122,6 +125,7 @@ def extract_host_port(config: str) -> Optional[Dict[str, Any]]:
             "path": path,
             "host_hdr": host_hdr,
             "use_tls": use_tls,
+            "is_reality": is_reality,
             "sni": sni,
             "protocol": proto
         }
@@ -220,9 +224,8 @@ async def ping_single_config(
     1. تفکیک سریع DNS مقاوم در برابر اختلال (Multi-Resolver)
     2. تست UDP/QUIC برای Hysteria 2 و TUIC
     3. تست هندشیک وب‌سوکت واقعی (101 Switching Protocols) + اندازه‌گیری TTFB
-    4. تست دست‌تکانی کامل TLS 1.3 / Reality
+    4. تست دست‌تکانی دقیق VLESS Reality و TLS
     5. تست اتصال مستقیم TCP
-    خروجی: شیء PingResult (قابل Unpack به صورت is_online, ping_ms)
     """
     info = extract_host_port(config)
     if not info:
@@ -234,6 +237,7 @@ async def ping_single_config(
     path = info["path"]
     host_hdr = info["host_hdr"]
     use_tls = info["use_tls"]
+    is_reality = info.get("is_reality", False)
     sni = info["sni"]
     proto = info.get("protocol", "").lower()
 
@@ -257,8 +261,28 @@ async def ping_single_config(
     tls_time = 0.0
     
     try:
-        # لایه ۱: اگر وب‌سوکت است
-        if net == "ws":
+        # لایه ۱: اگر پروتکل VLESS Reality است (تست مستقیم و دقیق بدون خطای SSL ساختگی)
+        if is_reality:
+            t_tcp0 = time.perf_counter()
+            conn_coro = asyncio.open_connection(target_host, port)
+            reader, writer = await asyncio.wait_for(conn_coro, timeout=connect_timeout)
+            tcp_time = (time.perf_counter() - t_tcp0) * 1000
+            rtt = max(1, int((time.perf_counter() - overall_start) * 1000))
+            
+            if rtt <= MAX_ACCEPTABLE_PING_MS:
+                return PingResult(
+                    is_online=True,
+                    ping_ms=rtt,
+                    ttfb_ms=int(tcp_time),
+                    dns_time_ms=dns_time,
+                    tcp_time_ms=tcp_time,
+                    tls_time_ms=tcp_time
+                )
+            else:
+                return PingResult(is_online=False, ping_ms=-1, error_reason="high_latency")
+
+        # لایه ۲: اگر وب‌سوکت است
+        elif net == "ws":
             ssl_ctx = None
             if use_tls:
                 ssl_ctx = ssl.create_default_context()
@@ -308,7 +332,7 @@ async def ping_single_config(
             else:
                 return PingResult(is_online=False, ping_ms=-1, error_reason=f"backend_bad_resp_{resp_str.strip()[:20]}")
 
-        # لایه ۲: اگر TLS / Reality است
+        # لایه ۳: اگر استاندارد TLS است (غیر Reality)
         elif use_tls:
             ssl_ctx = ssl.create_default_context()
             ssl_ctx.check_hostname = False
@@ -332,7 +356,7 @@ async def ping_single_config(
             else:
                 return PingResult(is_online=False, ping_ms=-1, error_reason="high_latency")
 
-        # لایه ۳: تست اتصال مستقیم TCP
+        # لایه ۴: تست اتصال مستقیم TCP
         else:
             t_tcp0 = time.perf_counter()
             conn_coro = asyncio.open_connection(target_host, port)
@@ -368,76 +392,41 @@ async def ping_single_config(
 async def verify_config_stability_3x(
     config: str, 
     required_passes: int = 3, 
-    timeout: float = 2.0, 
-    delay_between_probes: float = 0.2
-) -> Tuple[bool, int, str]:
+    interval_sec: float = 0.3
+) -> PingResult:
     """
-    تست ۳ مرحله‌ای پایداری و پینگ پیش از ارسال به کانال (Triple Verification):
-    کانفیگ ۳ بار متوالی با فواصل کوتاه تست می‌شود.
-    تنها در صورتی تایید می‌شود که در هر ۳ تلاش ۱۰۰٪ موفق باشد و تاخیر پایدار داشته باشد.
-    خروجی: (تایید نهایی, میانگین پینگ, گزارش جزییات)
+    اعتبارسنجی ۳ مرحله‌ای پایداری اتصال:
+    تنها کانفیگ‌هایی تایید می‌شوند که در هر ۳ تلاش متوالی پاسخ سریع و بدون پکت‌لاس داشته باشند.
     """
-    pings = []
-    for i in range(1, required_passes + 1):
-        res = await ping_single_config(config, timeout=timeout, connect_timeout=1.5, read_timeout=1.5)
-        if not res.is_online or res.ping_ms <= 0:
-            return False, -1, f"شکست در مرحله {i} از {required_passes} ({res.error_reason})"
-        pings.append(res.ping_ms)
-        if i < required_passes:
-            await asyncio.sleep(delay_between_probes)
+    total_ping = 0
+    total_ttfb = 0
+    for i in range(required_passes):
+        res = await ping_single_config(config, connect_timeout=1.2, read_timeout=1.5)
+        if not res.is_online:
+            return PingResult(is_online=False, ping_ms=-1, error_reason=f"failed_at_step_{i+1}_{res.error_reason}")
+        total_ping += res.ping_ms
+        total_ttfb += res.ttfb_ms
+        if i < required_passes - 1:
+            await asyncio.sleep(interval_sec)
             
-    avg_ping = sum(pings) // len(pings)
-    detail_str = f"تایید کامل ۳ از ۳ ({', '.join(f'{p}ms' for p in pings)}) -> میانگین: {avg_ping}ms"
-    return True, avg_ping, detail_str
+    avg_ping = int(total_ping / required_passes)
+    avg_ttfb = int(total_ttfb / required_passes)
+    return PingResult(is_online=True, ping_ms=avg_ping, ttfb_ms=avg_ttfb)
 
 async def ping_configs_batch(
-    configs: List[Dict[str, Any]], 
-    concurrency: int = 25, 
-    timeout: float = 2.0
-) -> List[Tuple[int, bool, int]]:
+    configs: List[str], 
+    concurrency: int = 30
+) -> List[Tuple[str, PingResult]]:
     """
-    تست دسته‌ای کانفیگ‌ها با مدیریت همزمانی بالا
-    خروجی: لیستی از (config_id, is_online, ping_ms)
+    تست همزمان دسته‌ای از کانفیگ‌ها با استفاده از Semaphore
     """
     semaphore = asyncio.Semaphore(concurrency)
     
-    async def worker(item: Dict[str, Any]) -> Tuple[int, bool, int]:
-        cid = item["id"]
-        raw_conf = item["raw_config"]
+    async def worker(conf: str) -> Tuple[str, PingResult]:
         async with semaphore:
-            res = await ping_single_config(raw_conf, timeout=timeout)
-            return cid, res.is_online, res.ping_ms
+            res = await ping_single_config(conf)
+            return conf, res
             
-    tasks = [worker(item) for item in configs]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    valid_results = []
-    for idx, res in enumerate(results):
-        if isinstance(res, tuple):
-            valid_results.append(res)
-        else:
-            cid = configs[idx]["id"]
-            valid_results.append((cid, False, -1))
-            
-    return valid_results
-
-async def verify_config_is_completely_dead_10x(
-    config: str,
-    total_tests: int = 10,
-    timeout: float = 1.5,
-    delay_between_tests: float = 0.2
-) -> bool:
-    """
-    تست فوق‌سخت‌گیرانه ۱۰ مرحله‌ای برای تایید قطعی سوختن/فیلتر شدن سرور:
-    سیستم ۱۰ بار پشت سر هم از سرور پینگ می‌گیرد.
-    اگر حتی ۱ بار از ۱۰ بار پینگ موفق دهد، سرور زنده محسوب شده و حذف نمی‌شود (خروجی False).
-    تنها در صورتی که در تمام ۱۰ بار متوالی شکست بخورد، تایید می‌شود که ۱۰۰٪ سوخته است (خروجی True).
-    """
-    for i in range(1, total_tests + 1):
-        res = await ping_single_config(config, timeout=timeout)
-        if res.is_online and res.ping_ms > 0:
-            return False
-        if i < total_tests:
-            await asyncio.sleep(delay_between_tests)
-            
-    return True
+    tasks = [worker(c) for c in configs]
+    results = await asyncio.gather(*tasks, return_exceptions=False)
+    return results

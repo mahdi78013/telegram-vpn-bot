@@ -124,21 +124,22 @@ class NodeRegistry:
         self._init_l4_emergency_fallback()
 
     def _init_l4_emergency_fallback(self):
-        """بارگذاری اولیه L4 Last Known Good Config"""
+        """بارگذاری اولیه L4 Last Known Good Config با نود تست‌شده و فعال Reality"""
         fallback_conf = (
-            "vless://25f46401-4475-43ea-98f9-a0353c7c4c12@104.18.3.161:443?"
-            "encryption=none&security=tls&type=ws&host=update.microsoft.com&path=%2Fvless-ws"
-            f"&sni=update.microsoft.com#{DEFAULT_TAG}"
+            "vless://219762a7-b918-4e2b-8a3d-d309ef98bb61@45.195.111.108:443?"
+            "encryption=none&flow=xtls-rprx-vision&security=reality&sni=storage.yandex.net"
+            "&fp=chrome&pbk=7zd9mJilgjOrg_ohtw23Vmio-pdnYqeP_r-kiWt87Cg&sid=f4b4a6365558ea2e"
+            f"&type=tcp#{DEFAULT_TAG}"
         )
         self._last_known_good = CandidateNode(
             id=0,
             raw_config=fallback_conf,
             protocol="vless",
-            score=70.0,
+            score=95.0,
             health_state=NodeHealth.HEALTHY,
             ping_ms=65,
             ttfb_ms=65,
-            success_rate=1.0,
+            carrier_scores={"mtn": 95.0, "mci": 95.0, "wifi": 90.0},
             last_tested_at=time.time(),
             last_success_at=time.time()
         )

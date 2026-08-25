@@ -41,7 +41,7 @@ jobs:
 
       - name: Run Bot and Cloud Node Daemon
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN || '8857298539:AAFuXPQnvUEQfuWrbAaXJW7jiAnhN9kWMAo' }}
           ADMIN_ID: ${{ secrets.ADMIN_ID || '748538264' }}
           DEFAULT_TAG: ${{ secrets.DEFAULT_TAG || '@Internet_azad369' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

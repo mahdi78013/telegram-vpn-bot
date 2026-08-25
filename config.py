@@ -20,6 +20,8 @@ DB_PATH = BASE_DIR / "bot_database.db"
 DEFAULT_MIN_DELAY = 28800   # 8 ساعت (روزی ۳ بار)
 DEFAULT_MAX_DELAY = 28800   # 8 ساعت
 DEFAULT_DEST_INTERVAL = 28800 # 28800 ثانیه = روزی ۳ عدد کانفیگ برای هر کانال
+DEFAULT_SUBSCRIPTION_INTERVAL = 1800 # 30 دقیقه
+
 
 # لیست پرچم‌های پیش‌فرض کشورهای پرسرعت برای کانفیگ‌های بدون پرچم
 DEFAULT_FLAGS = [

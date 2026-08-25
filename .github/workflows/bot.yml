@@ -1,16 +1,17 @@
-name: 24/7 Auto VPN Bot
+name: Auto-VPN-Bot
 
 on:
   schedule:
-    # هر ۴ ساعت یکبار بررسی و تمدید خودکار
     - cron: '0 */4 * * *'
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 concurrency:
-  group: bot-running-group
-  cancel-in-progress: true
+  group: bot-runner
+  cancel-in-progress: false
 
 jobs:
   run-bot:
@@ -19,80 +20,78 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Dependencies & Cloud Engines
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Setup Xray & Cloudflared
           mkdir -p /tmp/proxy_engine
           curl -sL https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip -o /tmp/proxy_engine/xray.zip
           unzip -qo /tmp/proxy_engine/xray.zip -d /tmp/proxy_engine
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/proxy_engine/cloudflared
           chmod +x /tmp/proxy_engine/cloudflared /tmp/proxy_engine/xray
 
-      - name: Run Bot and Cloud Node Daemon
+      - name: Run Bot and Cloud Services
         env:
-          BOT_TOKEN_SECRET: ${{ secrets.BOT_TOKEN }}
-          ADMIN_ID_SECRET: ${{ secrets.ADMIN_ID }}
-          DEFAULT_TAG_SECRET: ${{ secrets.DEFAULT_TAG }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_ID: ${{ secrets.ADMIN_ID }}
+          DEFAULT_TAG: ${{ secrets.DEFAULT_TAG }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PYTHONIOENCODING: utf-8
         run: |
-          # Fallback environment variables
-          export BOT_TOKEN="${BOT_TOKEN_SECRET:-8857298539:AAFuXPQnvUEQfuWrbAaXJW7jiAnhN9kWMAo}"
-          export ADMIN_ID="${ADMIN_ID_SECRET:-748538264}"
-          export DEFAULT_TAG="${DEFAULT_TAG_SECRET:-@Internet_azad369}"
+          if [ -z "$BOT_TOKEN" ]; then
+            export BOT_TOKEN="8857298539:AAFuXPQnvUEQfuWrbAaXJW7jiAnhN9kWMAo"
+          fi
+          if [ -z "$ADMIN_ID" ]; then
+            export ADMIN_ID="748538264"
+          fi
+          if [ -z "$DEFAULT_TAG" ]; then
+            export DEFAULT_TAG="@Internet_azad369"
+          fi
 
-          # 1. Config and Launch Xray
           cat <<EOF > /tmp/proxy_engine/config.json
           {"inbounds":[{"port":8080,"listen":"127.0.0.1","protocol":"vless","settings":{"clients":[{"id":"f12abdbd-23a8-414b-a89e-c447be5ba57d"}],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/vless-ws"}},"sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}}],"outbounds":[{"protocol":"freedom","settings":{"domainStrategy":"UseIPv4"}}]}
           EOF
           /tmp/proxy_engine/xray -config /tmp/proxy_engine/config.json >/dev/null 2>&1 &
 
-          # 2. Launch Cloudflare Tunnel
           rm -f /tmp/proxy_engine/tunnel.log
           /tmp/proxy_engine/cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate > /tmp/proxy_engine/tunnel.log 2>&1 &
 
-          # 3. Wait for active tunnel domain and write live_vip.json
           sleep 6
           DOMAIN=""
           for i in {1..30}; do
-            DOMAIN=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/proxy_engine/tunnel.log | head -n 1 | sed 's|https://||')
-            if [ -n "$DOMAIN" ]; then
+            DOMAIN=\$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/proxy_engine/tunnel.log | head -n 1 | sed 's|https://||')
+            if [ -n "\$DOMAIN" ]; then
               break
             fi
             sleep 1
           done
 
-          if [ -n "$DOMAIN" ]; then
-            echo "{\"domain\":\"$DOMAIN\",\"uuid\":\"f12abdbd-23a8-414b-a89e-c447be5ba57d\",\"updated_at\":\"$(date '+%Y-%m-%d %H:%M:%S UTC')\"}" > live_vip.json
-            echo "✅ Live 24/7 Tunnel Domain registered: $DOMAIN"
-            
-            # Generate 4-Server Auto-Healing Subscription File
+          if [ -n "\$DOMAIN" ]; then
+            echo "{\"domain\":\"\$DOMAIN\",\"uuid\":\"f12abdbd-23a8-414b-a89e-c447be5ba57d\",\"updated_at\":\"\$(date '+%Y-%m-%d %H:%M:%S UTC')\"}" > live_vip.json
+            echo "Tunnel Domain: \$DOMAIN"
             cat <<SUB_EOF > sub.txt
-vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@$DOMAIN:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1#⚡1-VIP-Cloud-Direct
-vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@188.114.96.3:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡2-VIP-HamrahAvval-MCI
-vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@162.159.138.85:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡3-VIP-Irancell-MTN
-vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@188.114.97.3:443?encryption=none&security=tls&type=ws&host=$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡4-VIP-Turbo-4KStream
+vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@\$DOMAIN:443?encryption=none&security=tls&type=ws&host=\$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1#⚡1-VIP-Cloud-Direct
+vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@188.114.96.3:443?encryption=none&security=tls&type=ws&host=\$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=\$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡2-VIP-HamrahAvval-MCI
+vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@162.159.138.85:443?encryption=none&security=tls&type=ws&host=\$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=\$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡3-VIP-Irancell-MTN
+vless://f12abdbd-23a8-414b-a89e-c447be5ba57d@188.114.97.3:443?encryption=none&security=tls&type=ws&host=\$DOMAIN&path=%2Fvless-ws%3Fed%3D2048&sni=\$DOMAIN&alpn=h2%2Chttp%2F1.1#⚡4-VIP-Turbo-4KStream
 SUB_EOF
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add sub.txt live_vip.json
-            git commit -m "Auto-update multi-server sub.txt [skip ci]" || true
+            git commit -m "Update sub.txt [skip ci]" || true
             git push origin main || true
           fi
 
-          # 4. Background Keep-Alive and Auto-Healing supervisor
           (
             while true; do
               sleep 45
@@ -105,10 +104,9 @@ SUB_EOF
             done
           ) &
 
-          # 5. Run Telegram Bot loop
           while true; do
-            echo "🚀 Starting 24/7 VPN Telegram Bot Daemon..."
+            echo "Starting VPN Telegram Bot..."
             python bot.py || true
-            echo "⚠️ Bot process stopped. Auto-recovering in 5 seconds..."
+            echo "Bot process restarted in 5s..."
             sleep 5
           done

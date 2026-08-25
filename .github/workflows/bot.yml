@@ -41,13 +41,18 @@ jobs:
 
       - name: Run Bot and Cloud Node Daemon
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN || '8857298539:AAFuXPQnvUEQfuWrbAaXJW7jiAnhN9kWMAo' }}
-          ADMIN_ID: ${{ secrets.ADMIN_ID || '748538264' }}
-          DEFAULT_TAG: ${{ secrets.DEFAULT_TAG || '@Internet_azad369' }}
+          BOT_TOKEN_SECRET: ${{ secrets.BOT_TOKEN }}
+          ADMIN_ID_SECRET: ${{ secrets.ADMIN_ID }}
+          DEFAULT_TAG_SECRET: ${{ secrets.DEFAULT_TAG }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PYTHONIOENCODING: utf-8
         run: |
+          # Fallback environment variables
+          export BOT_TOKEN="${BOT_TOKEN_SECRET:-8857298539:AAFuXPQnvUEQfuWrbAaXJW7jiAnhN9kWMAo}"
+          export ADMIN_ID="${ADMIN_ID_SECRET:-748538264}"
+          export DEFAULT_TAG="${DEFAULT_TAG_SECRET:-@Internet_azad369}"
+
           # 1. Config and Launch Xray
           cat <<EOF > /tmp/proxy_engine/config.json
           {"inbounds":[{"port":8080,"listen":"127.0.0.1","protocol":"vless","settings":{"clients":[{"id":"f12abdbd-23a8-414b-a89e-c447be5ba57d"}],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/vless-ws"}},"sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}}],"outbounds":[{"protocol":"freedom","settings":{"domainStrategy":"UseIPv4"}}]}

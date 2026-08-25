@@ -170,6 +170,12 @@ async def run_harvester_cycle():
             logger.error(f"Error harvesting source {src['name']}: {e}")
             
     logger.info(f"🎉 پایان سیکل جمع‌آوری: {total_saved} کانفیگ فوق‌سریع و سالم وارد استخر شدند.")
+    try:
+        from codespace_vip import generate_and_publish_universal_sub
+        await generate_and_publish_universal_sub()
+    except Exception as ex:
+        logger.warning(f"Error auto-updating universal sub: {ex}")
+
 
 async def start_harvester_background_task(interval_seconds: int = 1800):
     """حلقه پس‌زمینه جمع‌آوری و بروزرسانی خودکار دیتابیس کانفیگ‌ها"""

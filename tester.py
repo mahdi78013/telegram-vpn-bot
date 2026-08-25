@@ -430,3 +430,15 @@ async def ping_configs_batch(
     tasks = [worker(c) for c in configs]
     results = await asyncio.gather(*tasks, return_exceptions=False)
     return results
+
+async def verify_config_is_completely_dead_10x(config: str, attempts: int = 5) -> bool:
+    """
+    تایید قطعی سوختن سرور با تلاش‌های متوالی جهت جلوگیری از حذف اشتباه سرورهای سالم
+    """
+    for _ in range(attempts):
+        res = await ping_single_config(config, connect_timeout=1.0)
+        if res.is_online:
+            return False
+        await asyncio.sleep(0.1)
+    return True
+

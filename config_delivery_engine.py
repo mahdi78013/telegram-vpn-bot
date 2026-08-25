@@ -545,7 +545,7 @@ class ConfigDeliveryEngine:
             logger.debug(f"Error fetching L3 candidates: {e}")
             return []
 
-    async def _fetch_live_candidates(self, context: Optional[NetworkContext] = None, limit: int = 15) -> List[CandidateNode]:
+    async def _fetch_live_candidates(self, context: Optional[NetworkContext] = None, limit: int = 20) -> List[CandidateNode]:
         """دریافت زنده از منابع سابسکریپشن اختصاصی متناسب با اپراتور"""
         try:
             from harvester import fetch_source_content, DEFAULT_SUBSCRIPTION_SOURCES
@@ -556,19 +556,21 @@ class ConfigDeliveryEngine:
             if ctx.carrier == "mtn":
                 urls = [
                     "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_2.txt",
-                    "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/normal/reality",
-                    "https://raw.githubusercontent.com/soroushmirzaei/telegram-v2ray-configs/main/sub/reality"
+                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
+                    "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
                 ]
             elif ctx.carrier == "mci":
                 urls = [
                     "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_2.txt",
-                    "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/normal/reality",
-                    "https://raw.githubusercontent.com/soroushmirzaei/telegram-v2ray-configs/main/sub/reality"
+                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
+                    "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
                 ]
             else:
-                urls = [s["url"] for s in DEFAULT_SUBSCRIPTION_SOURCES[:4]]
+                urls = [
+                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
+                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
+                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt"
+                ]
             
             for u in urls:
                 content = await fetch_source_content(u, timeout=ENGINE_CONNECT_TIMEOUT + ENGINE_READ_TIMEOUT)

@@ -56,47 +56,29 @@ def get_or_create_flag(original_remark: str) -> str:
     return random.choice(DEFAULT_FLAGS)
 
 def decode_base64_safe(s: str) -> str:
-    """دیکود امن رشته Base64 با تنظیم پدینگ‌های ناموجود"""
-    s = s.strip()
-    # تبدیل به حالت استاندارد
+    """دیکود امن رشته Base64 با حذف فاصله‌ها و تنظیم پدینگ‌های ناموجود"""
+    if not s:
+        return ""
+    s = re.sub(r"\s+", "", str(s).strip())
     s = s.replace("-", "+").replace("_", "/")
     missing_padding = len(s) % 4
     if missing_padding:
         s += "=" * (4 - missing_padding)
-    return base64.b64decode(s).decode("utf-8", errors="ignore")
+    try:
+        return base64.b64decode(s).decode("utf-8", errors="ignore")
+    except Exception:
+        try:
+            return base64.b64decode(s + "==").decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
 
 def encode_base64_safe(s: str) -> str:
     """انکود رشته به Base64 استاندارد"""
     return base64.b64encode(s.encode("utf-8")).decode("utf-8")
 
-# لیست آی‌پی‌های تمیز و پرسرعت تایید شده برای همراه اول، ایرانسل و مخابرات
-IRAN_CLEAN_IPS = [
-    "104.18.3.161",
-    "104.18.2.161",
-    "104.16.148.243",
-    "104.16.149.243",
-    "172.67.75.123",
-    "104.19.241.93",
-    "104.19.242.93",
-    "172.64.155.209",
-    "104.18.225.52",
-    "162.159.138.85",
-    "188.114.96.3",
-    "188.114.97.3"
-]
-
-# دامنه‌ها و SNIهای معتبر و باز در شبکه ملی و اپراتورهای ایران
-CLEAN_REALITY_SNIS = [
-    "www.speedtest.net",
-    "zoom.us",
-    "gateway.icloud.com",
-    "samsung.com",
-    "apple.com"
-]
-
 def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تغییر نام کانفیگ VMess و تزریق آی‌پی تمیز همراه اول/ایرانسل در صورت وب‌سوکت بودن
+    تغییر نام کانفیگ VMess با حفظ ۱۰۰٪ پارامترهای اصلی شبکه و اتصال سرور
     خروجی: (کانفیگ جدید, پرچم, پروتکل)
     """
     raw_b64 = config[len("vmess://"):]
@@ -110,16 +92,8 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     original_ps = str(data.get("ps", ""))
     flag = get_or_create_flag(original_ps)
     
-    # اگر وب‌سوکت است، با حفظ دقیق Host/SNI، آی‌پی تمیز قرار می‌دهیم تا در ایران متصل شود
-    net = str(data.get("net", "")).lower()
-    if net == "ws":
-        orig_add = data.get("add", "")
-        if not data.get("host"):
-            data["host"] = orig_add
-        if not data.get("sni"):
-            data["sni"] = orig_add
-        data["add"] = random.choice(IRAN_CLEAN_IPS)
-    
+    # حفظ دقیق تمام پارامترهای سرور (آی‌پی، پورت، آی‌دی، رمزنگاری، وب‌سوکت، هاست و غیره)
+    # تنها نام کانفیگ به همراه پرچم و تگ کانال تنظیم می‌شود
     new_ps = f"{flag} {tag}"
     data["ps"] = new_ps
     
@@ -130,7 +104,7 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
 
 def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تغییر نام کانفیگ‌های URL مانند vless, trojan و بهینه‌سازی مخصوص اپراتورهای ایران (MCI / MTN)
+    تغییر نام کانفیگ‌های URL مانند vless, trojan, ss, hysteria, tuic با حفظ ۱۰۰٪ آدرس، کلیدها، PBK و SNI
     خروجی: (کانفیگ جدید, پرچم, پروتکل)
     """
     proto_name = protocol_prefix.replace("://", "")
@@ -146,43 +120,13 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
     flag = get_or_create_flag(original_remark)
     new_remark = f"{flag} {tag}"
     
-    try:
-        parsed = urllib.parse.urlsplit(base_part)
-        query = urllib.parse.parse_qs(parsed.query)
-        net = query.get("type", ["tcp"])[0].lower()
-        security = query.get("security", [""])[0].lower()
-        orig_host = parsed.hostname
-        
-        # اگر وب‌سوکت است، آی‌پی تمیز تزریق می‌کنیم
-        if net == "ws" and orig_host:
-            if "host" not in query:
-                query["host"] = [orig_host]
-            if "sni" not in query:
-                query["sni"] = [orig_host]
-            clean_ip = random.choice(IRAN_CLEAN_IPS)
-            port = parsed.port or 443
-            new_netloc = f"{parsed.username}@{clean_ip}:{port}"
-            new_query_str = urllib.parse.urlencode({k: v[0] for k, v in query.items()})
-            new_base = urllib.parse.urlunsplit((parsed.scheme, new_netloc, parsed.path, new_query_str, ""))
-            return f"{new_base}#{new_remark}", flag, proto_name
-            
-        # اگر Reality است و SNI ندارد، یک SNI تایید شده اضافه می‌کنیم
-        elif security == "reality":
-            if "sni" not in query or not query["sni"][0]:
-                query["sni"] = [random.choice(CLEAN_REALITY_SNIS)]
-                new_query_str = urllib.parse.urlencode({k: v[0] for k, v in query.items()})
-                new_base = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query_str, ""))
-                return f"{new_base}#{new_remark}", flag, proto_name
-    except Exception:
-        pass
-    
-    # بازسازی کانفیگ استاندارد
+    # بازسازی کانفیگ بدون دستکاری پارامترهای اتصال، PBK یا SNI سرور
     new_config = f"{base_part}#{new_remark}"
     return new_config, flag, proto_name
 
 def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تشخیص پروتکل، بهینه‌سازی برای شبکه ایران، تغییر نام به همراه پرچم، و بازتولید کانفیگ
+    تشخیص پروتکل، حفظ سلامت اتصال و تغییر نام به همراه پرچم و تگ کانال
     خروجی: (کانفیگ_اصلاح_شده, پرچم, نام_پروتکل)
     """
     config = config.strip()
@@ -194,7 +138,7 @@ def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str
         if config.lower().startswith(proto):
             return modify_url_style_config(config, proto, tag=tag)
             
-    # اگر پروتکل ناشناخته باشد، در صورت داشتن # آن را تغییر می‌دهیم
+    # اگر پروتکل ناشناخته باشد
     flag = random.choice(DEFAULT_FLAGS)
     if "#" in config:
         base_part, _ = config.split("#", 1)
@@ -215,30 +159,56 @@ def detect_operator_for_config(raw_config: str, index: int = 0) -> str:
     elif "wifi" in conf_lower or "mokhaberat" in conf_lower or "tci" in conf_lower or "rightel" in conf_lower:
         return "📶 مخابرات / رایتل"
         
-    # توزیع متوازن و منظم بین اپراتورها در بسته‌های چندتایی
     operators_cycle = ["📡 همراه اول", "📱 ایرانسل", "🌐 تمام اپراتورها", "📶 مخابرات / رایتل"]
     return operators_cycle[index % len(operators_cycle)]
 
 def extract_configs_from_text(raw_text: str) -> List[str]:
     """
-    استخراج تمام کانفیگ‌های معتبر از یک متن طولانی یا محتوای فایل
+    استخراج جامع و هوشمند تمام کانفیگ‌های معتبر از انواع فرمت‌های متنی و سابسکریپشن:
+    1. استخراج مستقیم با ریجکس
+    2. دیکود چندمرحله‌ای کل متن Base64
+    3. بررسی خط‌به‌خط رشته‌های Base64
     """
     if not raw_text:
         return []
     
-    # ساخت الگو برای یافتن همه لینک‌های پروتکل‌ها
     proto_pattern = r"(?:vmess|vless|trojan|ss|ssr|tuic|hysteria|hysteria2|hy2|wireguard|wg)://[^\s<>\"']+"
-    matches = re.findall(proto_pattern, raw_text, re.IGNORECASE)
-    
-    cleaned_configs = []
+    cleaned_configs: List[str] = []
     seen = set()
     
-    for c in matches:
+    def add_match(c: str):
         c = c.strip()
         if c and c not in seen:
             seen.add(c)
             cleaned_configs.append(c)
             
+    # مرحله ۱: استخراج مستقیم از متن خام
+    matches = re.findall(proto_pattern, raw_text, re.IGNORECASE)
+    for m in matches:
+        add_match(m)
+        
+    # مرحله ۲: دیکود کامل متن اگر Base64 باشد
+    if not cleaned_configs or len(cleaned_configs) < 5:
+        decoded_full = decode_base64_safe(raw_text)
+        if decoded_full:
+            m_full = re.findall(proto_pattern, decoded_full, re.IGNORECASE)
+            for m in m_full:
+                add_match(m)
+                
+    # مرحله ۳: بررسی خط‌به‌خط برای لینک‌ها یا خطوط تک‌خطی Base64
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if any(line.lower().startswith(p) for p in ("vmess://", "vless://", "trojan://", "ss://", "tuic://", "hysteria://", "hy2://")):
+            add_match(line)
+        elif not line.startswith("http://") and not line.startswith("https://") and len(line) > 20:
+            dec = decode_base64_safe(line)
+            if dec:
+                m_line = re.findall(proto_pattern, dec, re.IGNORECASE)
+                for m in m_line:
+                    add_match(m)
+                    
     return cleaned_configs
 
 def get_config_core_signature(config: str) -> str:
@@ -258,6 +228,5 @@ def get_config_core_signature(config: str) -> str:
         except Exception:
             return config
     else:
-        # حذف بخش #remark
         base_part = config.split("#", 1)[0]
         return base_part

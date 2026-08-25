@@ -192,33 +192,92 @@ def setup_and_start_local_node():
         logger.error(f"Error in setup_and_start_local_node: {e}")
 
 SUB_FILE_PATH = os.path.join(os.path.dirname(__file__), "sub.txt")
+SUB_PLAIN_PATH = os.path.join(os.path.dirname(__file__), "sub_plain.txt")
 
-def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-c447be5ba57d"):
+async def generate_and_publish_universal_sub(tag: str = "@Internet_azad369") -> str:
     """
-    تولید و بروزرسانی خودکار فایل سابسکریپشن آنلاین در مخزن گیت‌هاب جهت ترمیم خودکار کانفیگ‌ها در برنامه کاربر
+    تولید و انتشار خودکار لینک سابسکریپشن سراسری و یکپارچه شامل تمام پروتکل‌ها و اپراتورها:
+    - ۳۰ کانفیگ فوق‌العاده سریع VLESS Reality (مخصوص ایرانسل و همراه اول)
+    - ۱۵ کانفیگ Hysteria 2 / TUIC (مخصوص گیمینگ و استریم)
+    - ۱۵ کانفیگ Trojan / TLS و VMess (مخصوص وای‌فای و مخابرات)
     """
-    if not domain:
-        return
-        
-    c_direct = f"vless://{uuid}@{domain}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-Direct"
-    c_mci = f"vless://{uuid}@{FASTEST_MCI_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-MCI"
-    c_mtn = f"vless://{uuid}@{FASTEST_MTN_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-Irancell"
-    c_stream = f"vless://{uuid}@{FASTEST_TURBO_IP}:443?encryption=none&security=tls&type=ws&host={domain}&path=%2Fvless-ws%3Fed%3D2048&sni={domain}&alpn=h2%2Chttp%2F1.1#⚡VIP-AutoHeal-4KStream"
-    
-    plain_content = f"{c_direct}\n{c_mci}\n{c_mtn}\n{c_stream}\n"
     import base64
+    import aiosqlite
+    from config import DB_PATH
+    from parser import transform_config
+    
+    configs_to_pack = []
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            
+            # ۱. دریافت نودهای سالم Reality
+            async with db.execute("""
+                SELECT raw_config FROM configs 
+                WHERE is_active = 1 AND (last_ping_status = 1 OR last_ping_status IS NULL)
+                  AND (raw_config LIKE '%security=reality%' OR raw_config LIKE '%pbk=%')
+                ORDER BY ping_ms ASC
+                LIMIT 30
+            """) as cursor:
+                rows = await cursor.fetchall()
+                for r in rows:
+                    configs_to_pack.append(r["raw_config"])
+                    
+            # ۲. دریافت نودهای Hysteria 2 و TUIC
+            async with db.execute("""
+                SELECT raw_config FROM configs 
+                WHERE is_active = 1 AND (last_ping_status = 1 OR last_ping_status IS NULL)
+                  AND (raw_config LIKE '%hy2://%' OR raw_config LIKE '%hysteria2://%' OR raw_config LIKE '%tuic://%')
+                ORDER BY ping_ms ASC
+                LIMIT 15
+            """) as cursor:
+                rows = await cursor.fetchall()
+                for r in rows:
+                    if r["raw_config"] not in configs_to_pack:
+                        configs_to_pack.append(r["raw_config"])
+                        
+            # ۳. دریافت سایر پروتکل‌های TLS و Trojan
+            async with db.execute("""
+                SELECT raw_config FROM configs 
+                WHERE is_active = 1 AND (last_ping_status = 1 OR last_ping_status IS NULL)
+                  AND protocol IN ('trojan', 'vmess', 'vless')
+                ORDER BY ping_ms ASC
+                LIMIT 20
+            """) as cursor:
+                rows = await cursor.fetchall()
+                for r in rows:
+                    if r["raw_config"] not in configs_to_pack:
+                        configs_to_pack.append(r["raw_config"])
+    except Exception as e:
+        logger.warning(f"Error reading configs for sub: {e}")
+        
+    # اگر هنوز دیتابیس کامل پر نشده بود، از L2 Pool کمک بگیر
+    if len(configs_to_pack) < 5:
+        from node_registry import registry
+        pool = registry.get_l2_pool(min_score=20.0)
+        for n in pool:
+            if n.raw_config not in configs_to_pack:
+                configs_to_pack.append(n.raw_config)
+                
+    # تبدیل و زیباسازی تمام کانفیگ‌ها همراه با پرچم و تگ
+    final_confs = []
+    for c in configs_to_pack:
+        transformed, flag, proto = transform_config(c, tag=tag)
+        final_confs.append(transformed)
+        
+    plain_content = "\n".join(final_confs) + "\n"
     b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
     
-    # 1. ذخیره محلی فرمت استاندارد Base64 و Plain
+    # ذخیره محلی
     try:
         with open(SUB_FILE_PATH, "w", encoding="utf-8") as f:
             f.write(b64_content)
-        with open(os.path.join(os.path.dirname(__file__), "sub_plain.txt"), "w", encoding="utf-8") as f:
+        with open(SUB_PLAIN_PATH, "w", encoding="utf-8") as f:
             f.write(plain_content)
     except Exception as e:
-        logger.warning(f"Error writing local sub.txt: {e}")
+        logger.warning(f"Error writing local sub files: {e}")
         
-    # 2. انتشار خودکار در مخزن گیت‌هاب جهت سابسکریپشن سراسری (از طریق GitHub REST API)
+    # انتشار مستقیم در مخزن گیت‌هاب
     token = os.environ.get("GITHUB_TOKEN") or ""
     repo = "mahdi78013/telegram-vpn-bot"
     if token:
@@ -229,7 +288,7 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
             headers = {
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "AutoSub-Updater"
+                "User-Agent": "UniversalSub-Updater"
             }
             sha = ""
             try:
@@ -241,7 +300,7 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
                 pass
                 
             body_dict = {
-                "message": "Auto-update live Base64 subscription [skip ci]",
+                "message": f"Auto-publish {len(final_confs)} universal nodes to sub.txt [skip ci]",
                 "content": b64_payload,
             }
             if sha:
@@ -254,9 +313,20 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
                 method="PUT"
             )
             with urllib.request.urlopen(req_put, timeout=8) as r:
-                logger.info("✅ لینک سابسکریپشن هوشمند در مخزن گیت‌هاب با موفقیت بروزرسانی شد.")
+                logger.info(f"✅ سابسکریپشن سراسری شامل {len(final_confs)} سرور در گیت‌هاب منتشر شد.")
         except Exception as ex:
-            logger.warning(f"Error updating sub.txt via API: {ex}")
+            logger.warning(f"Error publishing universal sub to GitHub: {ex}")
+            
+    return "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+
+def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-c447be5ba57d"):
+    """فراخوانی سازگار با توابع پس‌زمینه"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(generate_and_publish_universal_sub())
+    except Exception:
+        pass
 
 async def get_latest_local_config(tag: str = "@Internet_azad369") -> Dict[str, Any]:
     """تولید کانفیگ محلی در صورت نیاز"""

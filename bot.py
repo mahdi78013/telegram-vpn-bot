@@ -107,7 +107,7 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
             InlineKeyboardButton("📤 ارسال تستی (مخزن مهسا نت)", callback_data="btn_test_send_admin"),
         ],
         [
-            InlineKeyboardButton("🚀 دریافت کانفیگ پرسرعت ابری (مخصوص من)", callback_data="btn_codespace_vip"),
+            InlineKeyboardButton("🌐🔗 لینک سابسکریپشن سراسری", callback_data="btn_universal_sub"),
             InlineKeyboardButton("📈 داشبورد تله‌متری و سلامت", callback_data="btn_metrics_dashboard"),
         ],
         [
@@ -118,7 +118,7 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
     return InlineKeyboardMarkup(keyboard)
 
 def build_user_menu_keyboard() -> InlineKeyboardMarkup:
-    """منوی کاربران جهت دریافت سرور متناسب با اپراتور"""
+    """منوی کاربران جهت دریافت سرور متناسب با اپراتور و سابسکریپشن یکپارچه"""
     keyboard = [
         [
             InlineKeyboardButton("📡 کانفیگ همراه اول", callback_data="btn_user_mci"),
@@ -127,6 +127,9 @@ def build_user_menu_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("📶 مخابرات / رایتل", callback_data="btn_user_wifi"),
             InlineKeyboardButton("💎 پروکسی پرسرعت تلگرام", callback_data="btn_user_proxy"),
+        ],
+        [
+            InlineKeyboardButton("🌐🔗 دریافت لینک سابسکریپشن یکپارچه (همه اپراتورها)", callback_data="btn_universal_sub")
         ],
         [
             InlineKeyboardButton("👑 عضویت در کانال اینترنت آزاد", url="https://t.me/Internet_azad369")
@@ -665,6 +668,47 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
+
+async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر"""
+    query = update.callback_query
+    await query.answer("در حال دریافت لینک سابسکریپشن یکپارچه...")
+    
+    sub_url = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+    tag = await get_setting("tag", DEFAULT_TAG)
+    
+    # اطمینان از تازه‌سازی فایل در صورت نیاز
+    try:
+        from codespace_vip import generate_and_publish_universal_sub
+        asyncio.create_task(generate_and_publish_universal_sub(tag=tag))
+    except Exception:
+        pass
+        
+    msg = (
+        "🌐 <b>لینک سابسکریپشن سراسری و یکپارچه (Universal Subscription):</b>\n\n"
+        "🔮 <b>شامل ۵۰+ سرور برتر و تست‌شده:</b>\n"
+        "• 📱 مخصوص ایرانسل (VLESS Reality Vision)\n"
+        "• 📡 مخصوص همراه اول (MCI Reality & TLS)\n"
+        "• 📶 مخصوص وای‌فای، مخابرات و رایتل\n"
+        "• ⚡ پروتکل‌های گیمینگ و استریم (Hysteria 2 & TUIC)\n\n"
+        "👇 <b>لینک اتصال دائمی شما (جهت کپی روی کادر زیر بزنید):</b>\n\n"
+        f"<pre><code class=\"language-copy\">{sub_url}</code></pre>\n\n"
+        "-----------------\n"
+        "💡 <b>راهنمای فعال‌سازی در ۳۰ ثانیه:</b>\n"
+        "1️⃣ روی لینک بالا کلیک کنید تا کپی شود.\n"
+        "2️⃣ در برنامه <b>v2rayNG</b> یا <b>Hiddify</b> یا <b>NekoBox</b> یا <b>Streisand</b>، وارد منوی <b>Subscription Group (گروه‌های اشتراک)</b> شوید.\n"
+        "3️⃣ علامت ➕ را بزنید، نام دلخواه بگذارید و لینک بالا را در قسمت <b>Subscription URL</b> پیست کنید.\n"
+        "4️⃣ گزینه <b>Update Subscription (بروزرسانی اشتراک)</b> را بزنید تا تمام ۵۰ سرور دانلود شوند.\n\n"
+        "✨ <i>این لینک به طور خودکار هر ۳۰ دقیقه رفرش می‌شود و همیشه جدیدترین سرورهای متصل را دارد.</i>\n\n"
+        f"✅ {tag}"
+    )
+    
+    await query.message.reply_text(
+        text=msg,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
 
 # ----------------- بخش مدیریت کانال‌ها و گروه‌های مقصد (Multi-Destination) -----------------
 
@@ -1421,6 +1465,8 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_user_menu_view, pattern="^btn_user_menu_view$"))
     application.add_handler(CallbackQueryHandler(cb_deliver_operator_config, pattern="^btn_user_(mci|mtn|wifi)$"))
     application.add_handler(CallbackQueryHandler(cb_deliver_user_proxy, pattern="^btn_user_proxy$"))
+    application.add_handler(CallbackQueryHandler(cb_get_universal_sub, pattern="^btn_universal_sub$"))
+
     
     application.add_handler(CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$"))
     

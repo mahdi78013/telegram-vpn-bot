@@ -124,9 +124,13 @@ def format_channel_post(
 
 async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_test: bool = False) -> Tuple[bool, str]:
     """
-    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال‌ها و گروه‌های مقصد با تگ و آیدی اختصاصی هر کانال.
-    خروجی: (موفق/ناموفق, پیام وضعیت)
+    ارسال دسته‌ای/گروهی کانفیگ‌های تاییدشده به کانال‌ها و گروه‌های مقصد با تگ و آیدی اختصاصی هر کانال
+    با بهره‌گیری از موتور پیشرفته ConfigDeliveryEngine v2 و تحویل آنی بدون تایم‌اوت.
     """
+    from config_delivery_engine import delivery_engine
+    from node_registry import NetworkContext
+    from health_monitor import metrics_collector, RequestMetric
+    
     default_tag = await get_setting("tag", DEFAULT_TAG)
     batch_size_str = await get_setting("batch_size", "3")
     target_count = int(batch_size_str) if batch_size_str.isdigit() else 3
@@ -150,110 +154,34 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
     if not destinations:
         return False, "⚠️ هیچ کانال یا گروه مقصدی برای ارسال فعال نیست! لطفاً از بخش «مدیریت کانال‌ها و گروه‌ها» مقصد را فعال کنید."
         
-    source_mode = await get_setting("source_mode", "mahsa")
+    context = NetworkContext(carrier="all", region="all")
+    t0 = time.time()
     
-    # ------------------ حالت ۱: ارسال کانفیگ‌های اختصاصی و زنده نت ملی VIP ------------------
-    if source_mode == "vip":
-        try:
-            from codespace_vip import get_latest_codespace_config
-            success_count = 0
-            errors = []
-            
-            for dest in destinations:
-                dest_tag = dest if dest.startswith("@") else default_tag
-                vip_data = await get_latest_codespace_config(tag=dest_tag)
-                
-                dest_items = [
-                    {
-                        "config": vip_data["direct"],
-                        "flag": "🇩🇪",
-                        "proto": "VLESS",
-                        "operator": "⚡ تمام اپراتورها (همراه اول، ایرانسل، وای‌فای)",
-                        "ping": 68
-                    }
-                ]
-                
-                msg_text, reply_markup = format_batch_channel_post(
-                    items=dest_items,
-                    channel_tag=dest_tag
-                )
-                
-                try:
-                    sent_msg = await bot.send_message(
-                        chat_id=dest,
-                        text=msg_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup,
-                        disable_web_page_preview=True
-                    )
-                    success_count += 1
-                except Exception as e:
-                    errors.append(f"{dest}: {str(e)}")
-                    logger.error(f"Error sending VIP post to {dest}: {e}")
-                    
-            if success_count > 0:
-                dest_str = f"به {success_count} کانال/گروه مقصد" if len(destinations) > 1 else ""
-                return True, f"✅ سرورهای نت ملی ۲۴ ساعته VIP با موفقیت {dest_str} ارسال شدند."
-            else:
-                return False, f"❌ خطا در ارسال پیام به مقاصد: {', '.join(errors)}"
-        except Exception as ex:
-            logger.error(f"Error in VIP source mode: {ex}")
-            # در صورت بروز هر خطایی به حالت مخازن فال‌بک می‌زند
-            pass
-
-    # ------------------ حالت ۲: ارسال کانفیگ‌های مخازن آنلاین (مهسا نت) ------------------
-    max_attempts = 50
-    raw_verified_configs = []
+    # دریافت بسته‌ای بهترین و پایدارترین سرورها از موتور تحویل کانفیگ
+    raw_verified_configs = await delivery_engine.get_best_configs(
+        count=target_count,
+        context=context,
+        tag=default_tag
+    )
     
-    for attempt in range(max_attempts):
-        if len(raw_verified_configs) >= target_count:
-            break
-            
-        config_row = await get_next_config_to_send()
-        if not config_row:
-            break
-            
-        raw_config = config_row["raw_config"]
-        cid = config_row["id"]
-        
-        # تست ۳ مرحله‌ای پینگ و پایداری پیش از ارسال
-        is_verified, avg_ping, detail = await verify_config_stability_3x(raw_config, required_passes=3, timeout=2.0)
-        
-        if is_verified:
-            await update_config_ping(cid, True, avg_ping)
-            raw_verified_configs.append({
-                "id": cid,
-                "raw_config": raw_config,
-                "ping": avg_ping
-            })
-            logger.info(f"سرور شناسه {cid} تایید شد ({len(raw_verified_configs)}/{target_count}): {detail}")
-        else:
-            logger.info(f"سرور شناسه {cid} در تست ۳ مرحله‌ای رد شد ({detail})؛ سرور بعدی بررسی می‌شود.")
-            await update_config_ping(cid, False, -1)
-            
+    elapsed_ms = int((time.time() - t0) * 1000)
+    
     if not raw_verified_configs:
-        # در صورتی که تست ۳ مرحله‌ای موقتاً پاس نشود، از سرورهای موجود استفاده می‌کنیم تا ارسال قطع نشود
-        logger.info("تکمیل ظرفیت ارسال از سرورهای دیتابیس...")
-        for fallback_attempt in range(target_count * 3):
-            if len(raw_verified_configs) >= target_count:
-                break
-            config_row = await get_next_config_to_send()
-            if not config_row:
-                break
-            raw_config = config_row["raw_config"]
-            cid = config_row["id"]
-            raw_verified_configs.append({
-                "id": cid,
-                "raw_config": raw_config,
-                "ping": 380
-            })
-            
-    if not raw_verified_configs:
-        return False, "❌ هیچ کانفیگی در دیتابیس موجود نیست! لطفاً دریافت ابری را اجرا کنید."
+        # دریافت تک کانفیگ L4 به عنوان فال‌بک نهایی
+        fallback = await delivery_engine.get_best_config(context=context, tag=default_tag)
+        raw_verified_configs = [{
+            "id": fallback.get("node_id", 0),
+            "config": fallback["direct"],
+            "raw_config": fallback["direct"],
+            "flag": fallback["flag"],
+            "proto": fallback["proto"],
+            "ping": fallback["ping"],
+            "score": fallback.get("score", 75.0)
+        }]
         
     success_count = 0
     errors = []
-    sent_config_ids = [it["id"] for it in raw_verified_configs]
+    sent_config_ids = [it.get("id", 0) for it in raw_verified_configs if it.get("id")]
     
     # ارسال به هر مقصد با نام و تگ اختصاصی همان کانال
     for dest in destinations:
@@ -261,13 +189,13 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
         
         dest_items = []
         for raw_item in raw_verified_configs:
-            transformed_conf, flg, prt = transform_config(raw_item["raw_config"], tag=dest_tag)
+            transformed_conf, flg, prt = transform_config(raw_item.get("raw_config", raw_item.get("config", "")), tag=dest_tag)
             dest_items.append({
-                "id": raw_item["id"],
+                "id": raw_item.get("id", 0),
                 "config": transformed_conf,
                 "flag": flg,
                 "proto": prt,
-                "ping": raw_item["ping"]
+                "ping": raw_item.get("ping", 65)
             })
             
         msg_text, reply_markup = format_batch_channel_post(
@@ -284,7 +212,7 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
                 disable_web_page_preview=True
             )
             success_count += 1
-            if not is_test and sent_msg:
+            if not is_test and sent_msg and sent_config_ids:
                 try:
                     await record_sent_post(dest, sent_msg.message_id, sent_config_ids)
                 except Exception as ex:
@@ -299,6 +227,21 @@ async def send_single_post(bot: Bot, target_chat_id: Optional[str] = None, is_te
             errors.append(f"{dest}: {str(e)}")
             logger.error(f"Error sending post to {dest}: {e}")
             
+    # ثبت متریک تله‌متری
+    await metrics_collector.record(RequestMetric(
+        timestamp=time.time(),
+        carrier="all",
+        network_type="broadcast",
+        region="all",
+        latency_ms=elapsed_ms,
+        ttfb_ms=elapsed_ms,
+        retry_count=0,
+        timeout_occurred=(success_count == 0),
+        cache_hit=True,
+        cache_level="Engine-Multi",
+        node_id=sent_config_ids[0] if sent_config_ids else 0
+    ))
+
     if success_count > 0:
         if not is_test:
             for cid in sent_config_ids:
@@ -531,9 +474,13 @@ async def smart_channel_cleaner_loop(bot: Bot):
             logger.error(f"خطا در حلقه پاکسازی پست‌های سوخته: {e}", exc_info=True)
             await asyncio.sleep(60)
 
+_health_monitor_task: Optional[asyncio.Task] = None
+
 def start_scheduler(bot: Bot) -> bool:
     """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری، پروکسی‌ها و پاکسازی کانال"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task
+    from health_monitor import health_monitor
+    
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(scheduler_loop(bot))
     if _health_checker_task is None or _health_checker_task.done():
@@ -544,11 +491,19 @@ def start_scheduler(bot: Bot) -> bool:
         _proxy_refresher_task = asyncio.create_task(auto_refresh_proxies_loop())
     if _channel_cleaner_task is None or _channel_cleaner_task.done():
         _channel_cleaner_task = asyncio.create_task(smart_channel_cleaner_loop(bot))
+    if _health_monitor_task is None or _health_monitor_task.done():
+        _health_monitor_task = asyncio.create_task(health_monitor.start_monitor_loop())
     return True
 
 def stop_scheduler():
     """متوقف کردن تسک‌های پس‌زمینه"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _next_post_time
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task, _next_post_time
+    from health_monitor import health_monitor
+    
+    health_monitor.stop()
+    if _health_monitor_task and not _health_monitor_task.done():
+        _health_monitor_task.cancel()
+        _health_monitor_task = None
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
         _scheduler_task = None

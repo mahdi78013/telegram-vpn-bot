@@ -1,22 +1,11 @@
 import asyncio
-import base64
 import logging
-import random
 import time
-from typing import List, Dict, Any, Tuple, Optional
-import httpx
+import aiohttp
+import aiosqlite
+from typing import List, Dict, Any, Optional
 
-from config import (
-    DEFAULT_TAG,
-    ENGINE_CONNECT_TIMEOUT,
-    ENGINE_READ_TIMEOUT,
-    ENGINE_MAX_RETRIES,
-)
-from database import (
-    add_configs_bulk,
-    update_configs_ping_bulk,
-    get_setting,
-)
+from config import DB_PATH, DEFAULT_SUBSCRIPTION_INTERVAL
 from parser import extract_configs_from_text, decode_base64_safe
 from tester import ping_configs_batch
 from node_registry import CandidateNode, NodeHealth, registry
@@ -25,234 +14,222 @@ logger = logging.getLogger("CloudHarvester")
 
 DEFAULT_SUBSCRIPTION_SOURCES = [
     {
-        "name": "MahsaNet MTN/MCI Active VLESS Reality",
+        "name": "MahsaNet MTN Dedicated VLESS Reality",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt"
     },
     {
-        "name": "MahsaNet App Sub",
-        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/app/sub.txt"
+        "name": "MahsaNet MCI Dedicated VLESS Reality",
+        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt"
     },
     {
-        "name": "MahsaNet Segment Active",
-        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt"
+        "name": "Epodonios VLESS Reality Stream (2200+ Reality)",
+        "url": "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt"
     },
     {
-        "name": "ALIILAPRO Live VLESS Reality Stream",
-        "url": "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
-    },
-    {
-        "name": "Yebekhe TVC Multi-Protocol",
-        "url": "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/base64/mix"
-    },
-    {
-        "name": "Yebekhe Reality Normal",
-        "url": "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/normal/reality"
-    },
-    {
-        "name": "Soroush Mirzaei Reality Stream",
-        "url": "https://raw.githubusercontent.com/soroushmirzaei/telegram-v2ray-configs/main/sub/reality"
-    },
-    {
-        "name": "Barry-Far V2Ray Sub 1",
-        "url": "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt"
-    },
-    {
-        "name": "Epodonios All Configs",
+        "name": "Epodonios Global All Configs",
         "url": "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"
     },
     {
-        "name": "MFUU Verified Fast Nodes",
-        "url": "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray"
+        "name": "ALIILAPRO Live V2Ray Stream",
+        "url": "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
+    },
+    {
+        "name": "FreeFQ Live Public Pool",
+        "url": "https://raw.githubusercontent.com/freefq/free/master/v2"
     }
 ]
 
-# کلاینت سراسری با Connection Pooling و Keep-Alive جهت کاهش هزینه Handshake
-_SHARED_CLIENT: Optional[httpx.AsyncClient] = None
-
-def get_http_client() -> httpx.AsyncClient:
-    global _SHARED_CLIENT
-    if _SHARED_CLIENT is None or _SHARED_CLIENT.is_closed:
-        timeout_config = httpx.Timeout(
-            connect=ENGINE_CONNECT_TIMEOUT,
-            read=ENGINE_READ_TIMEOUT,
-            write=3.0,
-            pool=5.0
-        )
-        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
-        _SHARED_CLIENT = httpx.AsyncClient(
-            timeout=timeout_config,
-            limits=limits,
-            follow_redirects=True,
-            verify=False
-        )
-    return _SHARED_CLIENT
-
-async def fetch_source_content(
-    url: str, 
-    timeout: float = 5.0, 
-    max_depth: int = 2,
-    max_retries: int = ENGINE_MAX_RETRIES
-) -> str:
-    """
-    دانلود محتوای سابسکریپشن با استراتژی ضدتایم‌اوت:
-    - تفکیک Connect Timeout و Read Timeout
-    - تلاش مجدد با Exponential Backoff و Random Jitter
-    - پردازش متاساب‌ها و دیکود امن Base64
-    """
-    headers = {
-        "User-Agent": "Hiddify/2.5.7 (Android; Mobile; fa-IR)"
-    }
-    client = get_http_client()
-    
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                logger.debug(f"Attempt {attempt}: HTTP {resp.status_code} for {url}")
-                if attempt < max_retries:
-                    backoff = (0.4 * (2 ** (attempt - 1))) + random.uniform(0.1, 0.3)
-                    await asyncio.sleep(backoff)
-                    continue
-                return ""
-                
-            text = resp.text.strip()
-            if not text:
-                return ""
-                
-            # پردازش لینک‌های متاسابسکریپشن
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
-            nested_urls = [
-                l for l in lines 
-                if (l.startswith("http://") or l.startswith("https://")) 
-                and not any(p in l for p in ("vless://", "vmess://", "trojan://", "ss://"))
-            ]
-            
-            if nested_urls and max_depth > 0:
-                logger.info(f"متا سابسکریپشن شناسایی شد ({url})؛ دریافت همزمان {len(nested_urls)} زیرمجموعه...")
-                inner_tasks = [
-                    fetch_source_content(n_url, timeout=timeout, max_depth=max_depth - 1, max_retries=1) 
-                    for n_url in nested_urls[:6]  # کنترل نرخ و همزمانی
-                ]
-                inner_results = await asyncio.gather(*inner_tasks, return_exceptions=True)
-                valid_parts = [r for r in inner_results if isinstance(r, str) and r]
-                return "\n".join(valid_parts)
-                
-            # بررسی رشته Base64 استاندارد
-            if not any(proto in text for proto in ("vless://", "vmess://", "trojan://", "ss://")):
-                try:
-                    decoded = decode_base64_safe(text)
-                    if any(proto in decoded for proto in ("vless://", "vmess://", "trojan://", "ss://")):
-                        return decoded
-                except Exception:
-                    pass
-                    
-            return text
-            
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError, asyncio.TimeoutError) as e:
-            logger.debug(f"Attempt {attempt} failed for {url}: {e}")
-            if attempt < max_retries:
-                # محاسبه تاخیر با Exponential Backoff و Jitter
-                backoff = (0.5 * (2 ** (attempt - 1))) + random.uniform(0.1, 0.4)
-                await asyncio.sleep(backoff)
-            else:
-                logger.warning(f"All {max_retries} attempts failed for source {url}")
-                return ""
-        except Exception as e:
-            logger.error(f"Unexpected error fetching source {url}: {e}")
-            return ""
-            
-    return ""
-
-async def fetch_all_sources(sources: List[str] = None) -> List[str]:
-    """
-    دانلود همزمان تمام منابع و استخراج لیست تمامی کانفیگ‌ها با کنترل همزمانی
-    """
-    if not sources:
-        sources = [s["url"] for s in DEFAULT_SUBSCRIPTION_SOURCES]
-        
-    tasks = [fetch_source_content(url) for url in sources]
-    contents = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    all_raw_configs = []
-    seen = set()
-    
-    for c in contents:
-        if isinstance(c, str) and c:
-            configs = extract_configs_from_text(c)
-            for conf in configs:
-                if conf not in seen:
-                    seen.add(conf)
-                    all_raw_configs.append(conf)
-                    
-    return all_raw_configs
-
-async def harvest_and_store_online_configs(
-    sources: List[str] = None,
-    instant_test_count: int = 60,
-    test_timeout: float = 2.0
-) -> Dict[str, Any]:
-    """
-    اجرای فرآیند دریافت خودکار سرورها و تزریق فوری به کش و رجیستری:
-    1. دانلود همزمان سرورها از منابع ابری
-    2. ذخیره ۱۰۰٪ تمامی سرورهای جدید در دیتابیس (L3)
-    3. تست فوری دسته اولیه و تزریق نودهای پرسرعت به استخر L2 و کش L1
-    """
-    logger.info("شروع عملیات دریافت خودکار سرورها از منابع ابری...")
-    
-    # 1. دانلود تمام کانفیگ‌ها
-    fetched_configs = await fetch_all_sources(sources)
-    total_fetched = len(fetched_configs)
-    logger.info(f"تعداد {total_fetched} کانفیگ از منابع آنلاین دریافت شد.")
-    
-    if not fetched_configs:
-        return {
-            "total_fetched": 0,
-            "new_added": 0,
-            "duplicates": 0,
-            "instant_tested": 0,
-            "instant_online": 0,
-            "untested_queued": 0
-        }
-        
-    # 2. اضافه کردن تمام کانفیگ‌های جدید به دیتابیس
-    added, dupes = await add_configs_bulk(fetched_configs)
-    logger.info(f"ثبت در دیتابیس انجام شد: {added} سرور جدید اضافه شد | {dupes} تکراری رد شد.")
-    
-    # 3. تست فوری یک دسته برای تامین سرورهای اولیه
-    candidates = fetched_configs[:instant_test_count]
-    temp_items = [{"id": idx, "raw_config": conf} for idx, conf in enumerate(candidates)]
-    
-    ping_results = await ping_configs_batch(temp_items, concurrency=25, timeout=test_timeout)
-    
-    online_count = 0
-    offline_count = 0
-    for idx, is_online, ping_ms in ping_results:
-        conf_str = candidates[idx]
-        proto = conf_str.split("://", 1)[0] if "://" in conf_str else "custom"
-        
-        if is_online and ping_ms > 0:
-            online_count += 1
-            # ثبت در استخر L2 رجیستری
-            node = CandidateNode(
-                id=idx + 1000,
-                raw_config=conf_str,
-                protocol=proto,
-                score=max(30.0, 100.0 - (ping_ms / 6.5)),
-                health_state=NodeHealth.HEALTHY,
-                ping_ms=ping_ms,
-                ttfb_ms=ping_ms,
-                last_tested_at=time.time(),
-                last_success_at=time.time()
+async def init_sources_table():
+    """ایجاد جدول منابع در دیتابیس در صورت عدم وجود"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS subscription_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT UNIQUE NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                last_fetch_at TIMESTAMP,
+                configs_found INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                fail_count INTEGER DEFAULT 0
             )
-            registry._l2_pool[node.id] = node
-        else:
-            offline_count += 1
+        """)
+        
+        for src in DEFAULT_SUBSCRIPTION_SOURCES:
+            await db.execute("""
+                INSERT OR IGNORE INTO subscription_sources (name, url, is_active)
+                VALUES (?, ?, 1)
+            """, (src["name"], src["url"]))
             
+        await db.commit()
+
+async def fetch_source_content(url: str, timeout: float = 6.0) -> Optional[str]:
+    """دریافت محتوای یک لینک سابسکریپشن با پشتیبانی از هدرهای ضد انسداد"""
+    headers = {
+        "User-Agent": "v2rayNG/1.8.19 (Android; Mobile; fa-IR)",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive"
+    }
+    try:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    return text
+                else:
+                    logger.debug(f"HTTP error {response.status} for {url}")
+                    return None
+    except Exception as e:
+        logger.debug(f"Fetch failed for {url}: {e}")
+        return None
+
+async def harvest_single_source(src_id: int, name: str, url: str) -> int:
+    """دریافت و اعتبارسنجی کانفیگ‌های یک منبع مشخص و ورود مستقیم به پایگاه داده و استخر L2"""
+    raw_content = await fetch_source_content(url)
+    if not raw_content:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                UPDATE subscription_sources 
+                SET fail_count = fail_count + 1, last_fetch_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            """, (src_id,))
+            await db.commit()
+        return 0
+
+    extracted_configs = extract_configs_from_text(raw_content)
+    if not extracted_configs:
+        return 0
+
+    # بررسی و سنجش پینگ کانفیگ‌ها در دسته‌های سریع
+    tested_batch = await ping_configs_batch(extracted_configs[:100], concurrency=35)
+    
+    saved_count = 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        for conf, ping_res in tested_batch:
+            proto = conf.split("://", 1)[0].lower() if "://" in conf else "custom"
+            is_active = 1 if ping_res.is_online else 0
+            ping_ms = ping_res.ping_ms if ping_res.is_online else -1
+            status_code = 1 if ping_res.is_online else 0
+            
+            # ذخیره در دیتابیس
+            cursor = await db.execute("""
+                INSERT INTO configs (raw_config, protocol, is_active, ping_ms, last_ping_status, last_checked)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(raw_config) DO UPDATE SET
+                    is_active = excluded.is_active,
+                    ping_ms = excluded.ping_ms,
+                    last_ping_status = excluded.last_ping_status,
+                    last_checked = CURRENT_TIMESTAMP
+            """, (conf, proto, is_active, ping_ms, status_code))
+            
+            # ثبت در کش و استخر نودهای زنده
+            if ping_res.is_online:
+                saved_count += 1
+                node_id = cursor.lastrowid or int(time.time() * 1000) % 10000000
+                score = 90.0 if "security=reality" in conf.lower() else (80.0 if ping_ms < 150 else 60.0)
+                node = CandidateNode(
+                    id=node_id,
+                    raw_config=conf,
+                    protocol=proto,
+                    ping_ms=ping_ms,
+                    ttfb_ms=ping_res.ttfb_ms,
+                    score=score,
+                    health_state=NodeHealth.HEALTHY
+                )
+                registry.put_l2_pool(node)
+
+        await db.execute("""
+            UPDATE subscription_sources 
+            SET configs_found = ?, success_count = success_count + 1, last_fetch_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        """, (len(extracted_configs), src_id))
+        await db.commit()
+
+    logger.info(f"✅ منبع '{name}': {len(extracted_configs)} سرور دریافت شد ({saved_count} سرور با پینگ سبز فعال شد).")
+    return saved_count
+
+async def run_harvester_cycle():
+    """یک دور دریافت کامل از تمام منابع فعال در دیتابیس"""
+    await init_sources_table()
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, name, url FROM subscription_sources WHERE is_active = 1") as cursor:
+            sources = await cursor.fetchall()
+
+    logger.info(f"🚀 شروع دریافت خودکار کانفیگ‌ها از {len(sources)} منبع فعال ابری...")
+    total_saved = 0
+    
+    # پردازش سریع منابع
+    for src in sources:
+        try:
+            saved = await harvest_single_source(src["id"], src["name"], src["url"])
+            total_saved += saved
+        except Exception as e:
+            logger.error(f"Error harvesting source {src['name']}: {e}")
+            
+    logger.info(f"🎉 پایان سیکل جمع‌آوری: {total_saved} کانفیگ فوق‌سریع و سالم وارد استخر شدند.")
+
+async def start_harvester_background_task(interval_seconds: int = 1800):
+    """حلقه پس‌زمینه جمع‌آوری و بروزرسانی خودکار دیتابیس کانفیگ‌ها"""
+    while True:
+        try:
+            await run_harvester_cycle()
+        except Exception as e:
+            logger.error(f"Unexpected error in harvester background task: {e}")
+        await asyncio.sleep(interval_seconds)
+
+async def harvest_and_store_online_configs(sources: Optional[List[str]] = None, instant_test_count: int = 100) -> Dict[str, Any]:
+    """دریافت فوری و همزمان کانفیگ‌ها از منابع جهت پاسخگویی به درخواست‌های منوی بات"""
+    await init_sources_table()
+    total_fetched = 0
+    total_online = 0
+    
+    source_list = sources if sources else [s["url"] for s in DEFAULT_SUBSCRIPTION_SOURCES]
+    
+    for url in source_list:
+        content = await fetch_source_content(url)
+        if content:
+            confs = extract_configs_from_text(content)
+            total_fetched += len(confs)
+            if confs:
+                tested = await ping_configs_batch(confs[:instant_test_count], concurrency=35)
+                async with aiosqlite.connect(DB_PATH) as db:
+                    for c, ping_res in tested:
+                        proto = c.split("://", 1)[0].lower() if "://" in c else "custom"
+                        is_act = 1 if ping_res.is_online else 0
+                        p_ms = ping_res.ping_ms if ping_res.is_online else -1
+                        status = 1 if ping_res.is_online else 0
+                        cursor = await db.execute("""
+                            INSERT INTO configs (raw_config, protocol, is_active, ping_ms, last_ping_status, last_checked)
+                            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(raw_config) DO UPDATE SET
+                                is_active = excluded.is_active,
+                                ping_ms = excluded.ping_ms,
+                                last_ping_status = excluded.last_ping_status,
+                                last_checked = CURRENT_TIMESTAMP
+                        """, (c, proto, is_act, p_ms, status))
+                        if ping_res.is_online:
+                            total_online += 1
+                            nid = cursor.lastrowid or int(time.time() * 1000) % 10000000
+                            score = 90.0 if "security=reality" in c.lower() else 75.0
+                            node = CandidateNode(
+                                id=nid,
+                                raw_config=c,
+                                protocol=proto,
+                                ping_ms=p_ms,
+                                ttfb_ms=ping_res.ttfb_ms,
+                                score=score,
+                                health_state=NodeHealth.HEALTHY
+                            )
+                            registry.put_l2_pool(node)
+                    await db.commit()
+                    
     return {
         "total_fetched": total_fetched,
-        "new_added": added,
-        "duplicates": dupes,
-        "instant_tested": len(candidates),
-        "instant_online": online_count,
-        "untested_queued": max(0, added - online_count)
+        "new_added": total_online,
+        "duplicates": max(0, total_fetched - total_online),
+        "instant_online": total_online
     }
+

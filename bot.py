@@ -686,8 +686,8 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
     uid = user.id if user else "user"
     random_token = secrets.token_hex(4)
     
-    # لینک سابسکریپشن پویا و طولانی با شناسه یکتا
-    sub_url = f"https://tinyurl.com/MuntiVPN-Cloud-VIP-Sub-v2?uid={uid}&token={random_token}"
+    # لینک‌های سابسکریپشن: لینک مستقیم ضد فیلتر CDN بدون نیاز به وی‌پی‌ان اولیه
+    direct_cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
     tag = await get_setting("tag", DEFAULT_TAG)
     
     msg = (
@@ -697,17 +697,15 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
         "• 📶 مخابرات، رایتل و وای‌فای خانگی\n"
         "• ⚡ پروتکل‌های استریم و گیمینگ (Hysteria 2 & TUIC)\n\n"
-        "👇 <b>لینک اختصاصی شما (جهت کپی یک‌بار روی کادر زیر بزنید):</b>\n\n"
-        f"<code>{sub_url}</code>\n\n"
+        "👇 <b>لینک مستقیم ضد فیلتر (بدون نیاز به وی‌پی‌ان جهت اضافه کردن):</b>\n\n"
+        f"<code>{direct_cdn_url}</code>\n\n"
         "-----------------\n"
-        "💡 <b>آموزش سریع اتصال و بروزرسانی خودکار:</b>\n"
+        "💡 <b>آموزش اتصال سریع در ۲ مرحله:</b>\n"
         "1️⃣ روی کادر بالا بزنید تا لینک به صورت خودکار کپی شود.\n"
-        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b> یا <b>Streisand</b>، وارد بخش <b>Subscription (گروه‌های اشتراک)</b> شوید.\n"
-        "3️⃣ لینک را در کادر URL پیست کنید و ذخیره نمایید.\n"
-        "4️⃣ دکمه <b>Update subscription (بروزرسانی اشتراک)</b> را بزنید تا تمام ۵۰ سرور لود شوند.\n\n"
-        "🌟 <b>ترفند اتصال همیشگی بدون قطعی (Zero-Touch):</b>\n"
-        "• در تنظیمات برنامه، گزینه <b>Auto-Update (بروزرسانی خودکار)</b> را روی <b>هر ۱ ساعت</b> بگذارید تا برنامه همیشه بی‌صدا و خودکار سرورهای نو را دانلود کند.\n"
-        "• در برنامه هیدیفای، اتصال را روی گزینه <b>lowest</b> یا <b>balance</b> بگذارید تا همیشه سریع‌ترین پینگ انتخاب شود.\n\n"
+        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b>، در بخش <b>Subscription (گروه‌های اشتراک)</b> این لینک را وارد کنید (بدون نیاز به روشن بودن وی‌پی‌ان تمام ۵۰ سرور فوراً لود می‌شوند).\n\n"
+        "🌟 <b>ترفند اتصال پایدار:</b>\n"
+        "• در هیدیفای اتصال را روی <b>lowest</b> یا <b>balance</b> بگذارید تا خودکار به سریع‌ترین سرور وصل شوید.\n"
+        "• گزینه <b>Auto-Update (بروزرسانی خودکار)</b> را در برنامه روی ۱ ساعت بگذارید تا همیشه سرورهای نو داشته باشید.\n\n"
         f"✅ {tag}"
     )
     
@@ -716,6 +714,7 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
+
 
 async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نوسازی و غربالگری بلادرنگ تمام سرورهای سابسکریپشن توسط ادمین"""

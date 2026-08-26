@@ -476,9 +476,31 @@ async def smart_channel_cleaner_loop(bot: Bot):
 
 _health_monitor_task: Optional[asyncio.Task] = None
 
+async def auto_heal_sub_loop(interval_seconds: int = 900):
+    """
+    حلقه خودترمیم و نوسازی پیوسته فایل سابسکریپشن هر ۱۵ دقیقه:
+    تست بلادرنگ پینگ و جایگزینی خودکار سرورهای سوخته با سرورهای پینگ‌سبز
+    """
+    await asyncio.sleep(20)
+    while True:
+        try:
+            from codespace_vip import generate_and_publish_universal_sub
+            from database import get_setting
+            from config import DEFAULT_TAG
+            tag = await get_setting("tag", DEFAULT_TAG)
+            logger.info("🔄 شروع فرآیند خودترمیم و غربالگری سرورهای سابسکریپشن...")
+            await generate_and_publish_universal_sub(tag=tag)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Error in auto_heal_sub_loop: {e}")
+        await asyncio.sleep(interval_seconds)
+
+_sub_auto_heal_task: Optional[asyncio.Task] = None
+
 def start_scheduler(bot: Bot) -> bool:
-    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری، پروکسی‌ها و پاکسازی کانال"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task
+    """راه‌اندازی تسک‌های پس‌زمینه ارسال خودکار، تست سلامت، دریافت ابری، پروکسی‌ها، خودترمیم ساب و پاکسازی کانال"""
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task, _sub_auto_heal_task
     from health_monitor import health_monitor
     
     if _scheduler_task is None or _scheduler_task.done():
@@ -493,17 +515,22 @@ def start_scheduler(bot: Bot) -> bool:
         _channel_cleaner_task = asyncio.create_task(smart_channel_cleaner_loop(bot))
     if _health_monitor_task is None or _health_monitor_task.done():
         _health_monitor_task = asyncio.create_task(health_monitor.start_monitor_loop())
+    if _sub_auto_heal_task is None or _sub_auto_heal_task.done():
+        _sub_auto_heal_task = asyncio.create_task(auto_heal_sub_loop(900))
     return True
 
 def stop_scheduler():
     """متوقف کردن تسک‌های پس‌زمینه"""
-    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task, _next_post_time
+    global _scheduler_task, _health_checker_task, _auto_harvest_task, _proxy_refresher_task, _channel_cleaner_task, _health_monitor_task, _sub_auto_heal_task, _next_post_time
     from health_monitor import health_monitor
     
     health_monitor.stop()
     if _health_monitor_task and not _health_monitor_task.done():
         _health_monitor_task.cancel()
         _health_monitor_task = None
+    if _sub_auto_heal_task and not _sub_auto_heal_task.done():
+        _sub_auto_heal_task.cancel()
+        _sub_auto_heal_task = None
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
         _scheduler_task = None
@@ -520,6 +547,7 @@ def stop_scheduler():
         _channel_cleaner_task.cancel()
         _channel_cleaner_task = None
     _next_post_time = None
+
 
 def reset_destination_timers():
     """ریست کردن کش زمان‌بندی برای اعمال آنی سرعت جدید تنظیم‌شده توسط ادمین"""

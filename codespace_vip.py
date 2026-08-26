@@ -317,23 +317,25 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     # فاز ۳: دانلود غیرهمزمان از منابع متنوع (aiohttp)
     # ═══════════════════════════════════════════════════════════════
     sources = [
-        # MahsaNet (ایران‌محور — مخصوص ایرانسل و همراه اول)
+    # منابع برتر: ترکیب Hysteria 2، TUIC و VLESS Reality اروپایی
+    sources = [
+        # Hysteria 2 & TUIC (پروتکل‌های پرسرعت بر پایه UDP ضد پکت‌لاس)
+        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/tuic",
+        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/hysteria2/base64",
+        # MahsaNet (مخصوص همراه اول و ایرانسل)
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-        # Epodonios (VLESS Reality)
+        # VLESS Reality طلایی
         "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
-        # ALIILAPRO
         "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-        # Fly
         "https://raw.githubusercontent.com/ts-sf/Fly/main/v2",
-        # 🆕 منابع جدید با تمرکز روی Reality
-        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/reality",
-        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/reality/base64",
         "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray",
         "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt",
     ]
     
-    SUPPORTED_PREFIXES = ("vless://", "vmess://", "hy2://", "trojan://", "tuic://", "hysteria2://", "ss://")
+    SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://")
     
     candidates = []
     
@@ -353,7 +355,6 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
                     if any(l.startswith(p) for p in SUPPORTED_PREFIXES):
                         fetched.append(l)
                     else:
-                        # ممکن است Base64 باشد
                         try:
                             dec = decode_base64_safe(l)
                             for il in dec.split('\n'):
@@ -383,44 +384,48 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     logger.info(f"📥 {len(candidates)} کانفیگ خام از {len(sources)} منبع جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: پاکسازی SNIهای مسدود و ساخت پارامترهای استاندارد Reality
+    # فاز ۴: تفکیک و استخراج لوکیشن‌های طلایی (Hysteria2 + Reality)
     # ═══════════════════════════════════════════════════════════════
     BLOCKED_SNIS = ("railway.app", "workers.dev", "pages.dev", "cloudflare.com", "t.me", "telegram.org", "discord.com")
     
-    cleaned = []
+    hy2_nodes = []
+    reality_nodes = []
     seen_hosts = set()
     
     for c in candidates:
-        if not c.startswith("vless://"):
-            continue
-            
         base = c.split("#")[0] if "#" in c else c
         
-        # استخراج host و port و query
-        m = re.search(r'^vless://([^@]+)@([^:/?#]+):(\d+)\?(.*)$', base)
-        if not m:
+        # ۱. کانفیگ‌های Hysteria 2 و TUIC (ضد پکت‌لاس و سرعت فوق‌العاده)
+        if base.startswith("hy2://") or base.startswith("hysteria2://") or base.startswith("tuic://"):
+            m = re.search(r'://(?:[^@]+@)?([^:/?#]+):(\d+)', base)
+            if m:
+                host, port = m.group(1), int(m.group(2))
+                if host not in seen_hosts:
+                    hy2_nodes.append((base, host, port))
+                    seen_hosts.add(host)
             continue
             
-        uuid, host, port, query_str = m.group(1), m.group(2), m.group(3), m.group(4)
-        
-        if host in seen_hosts:
-            continue
+        # ۲. کانفیگ‌های VLESS Reality خالص با SNIهای تمیز
+        if base.startswith("vless://"):
+            m = re.search(r'^vless://([^@]+)@([^:/?#]+):(\d+)\?(.*)$', base)
+            if not m:
+                continue
+                
+            uuid, host, port, query_str = m.group(1), m.group(2), int(m.group(3)), m.group(4)
             
-        is_reality = "security=reality" in query_str or "pbk=" in query_str
-        is_tls = "security=tls" in query_str
-        
-        if not (is_reality or is_tls):
-            continue
+            if host in seen_hosts:
+                continue
+                
+            is_reality = "security=reality" in query_str or "pbk=" in query_str
+            if not is_reality:
+                continue
+                
+            sni_match = re.search(r'sni=([^&#]+)', query_str)
+            sni = sni_match.group(1) if sni_match else host
             
-        # استخراج SNI
-        sni_match = re.search(r'sni=([^&#]+)', query_str)
-        sni = sni_match.group(1) if sni_match else host
-        
-        # فیلتر دامنه‌های مسدودشده در فایروال ایران
-        if any(b in sni.lower() for b in BLOCKED_SNIS):
-            continue
-            
-        if is_reality:
+            if any(b in sni.lower() for b in BLOCKED_SNIS):
+                continue
+                
             pbk_match = re.search(r'pbk=([^&#]+)', query_str)
             if not pbk_match:
                 continue
@@ -429,60 +434,65 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
             sid_match = re.search(r'sid=([^&#]+)', query_str)
             sid = sid_match.group(1) if sid_match else ""
             
-            # بازسازی کانفیگ تمیز و بدون پارامترهای اسپم تلگرام
             pristine_url = (
                 f"vless://{uuid}@{host}:{port}?"
                 f"encryption=none&flow=xtls-rprx-vision&fp=chrome&headerType=none&"
                 f"pbk={pbk}&security=reality&sid={sid}&sni={sni}&type=tcp"
             )
-            cleaned.append(pristine_url)
+            reality_nodes.append((pristine_url, host, port))
             seen_hosts.add(host)
     
-    logger.info(f"🛡️ {len(cleaned)} سرور Reality با SNI باز و معتبر استخراج شد.")
-    unique = cleaned
+    logger.info(f"🛡️ استخراج {len(hy2_nodes)} نود Hysteria2 و {len(reality_nodes)} نود Reality خالص.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۵: تست موازی پینگ زنده
+    # فاز ۵: تست موازی پینگ و سنجش تاخیر پاسخ
     # ═══════════════════════════════════════════════════════════════
-    async def check_alive(conf: str):
+    async def check_alive(item):
+        conf_url, host, port = item
         try:
-            res = await ping_single_config(conf, connect_timeout=1.0)
-            if res.is_online and 50 <= res.ping_ms <= 600:
-                return (conf, res.ping_ms)
+            res = await ping_single_config(conf_url, connect_timeout=1.0)
+            if res.is_online and 40 <= res.ping_ms <= 550:
+                return (conf_url, res.ping_ms)
         except Exception:
             pass
         return None
     
-    # تست حداکثر ۱۵۰ سرور
-    test_batch = unique[:150]
-    tasks = [check_alive(c) for c in test_batch]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # تست موازی نودهای Hysteria2 و Reality
+    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:60]]
+    tasks_reality = [check_alive(item) for item in reality_nodes[:80]]
     
-    alive_nodes = []
-    for r in results:
-        if isinstance(r, tuple) and r is not None:
-            alive_nodes.append(r)
+    results_hy2 = await asyncio.gather(*tasks_hy2, return_exceptions=True)
+    results_reality = await asyncio.gather(*tasks_reality, return_exceptions=True)
     
-    # مرتب‌سازی بر اساس کمترین پینگ
-    alive_nodes.sort(key=lambda x: x[1])
+    alive_hy2 = [r for r in results_hy2 if isinstance(r, tuple) and r is not None]
+    alive_reality = [r for r in results_reality if isinstance(r, tuple) and r is not None]
     
-    logger.info(f"⚡ {len(alive_nodes)} سرور زنده با پینگ سبز از {len(test_batch)} تست‌شده.")
+    alive_hy2.sort(key=lambda x: x[1])
+    alive_reality.sort(key=lambda x: x[1])
+    
+    logger.info(f"⚡ نودهای زنده: {len(alive_hy2)} Hysteria2 + {len(alive_reality)} Reality")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۶: انتخاب ۱۰ سرور برتر + ساخت سابسکریپشن
+    # فاز ۶: ترکیب ۵ نود Hysteria2 پرسرعت + ۵ نود Reality طلایی اروپا
     # ═══════════════════════════════════════════════════════════════
-    selected_nodes = alive_nodes[:target_count]
+    EURO_COUNTRIES = ["DE", "NL", "FI", "TR", "FR", "GB", "SE", "AT", "CH", "PL"]
     
-    if len(selected_nodes) < 3:
-        logger.warning(f"⚠️ فقط {len(selected_nodes)} نود زنده یافت شد — از کاندیداهای ایران‌سازگار استفاده می‌شود.")
-        # fallback: از لیست فیلتر‌شده ولی تست‌نشده استفاده کن
-        fallback = [(c, 300) for c in unique if c not in [x[0] for x in selected_nodes]]
-        selected_nodes.extend(fallback[:target_count - len(selected_nodes)])
+    selected_hy2 = alive_hy2[:5]
+    selected_reality = alive_reality[:(target_count - len(selected_hy2))]
+    
+    # اگر هایستریا کمتر از ۵ تا بود، با ریالیتی اروپا پر کن
+    if len(selected_hy2) + len(selected_reality) < target_count:
+        remaining = target_count - (len(selected_hy2) + len(selected_reality))
+        extra_reality = alive_reality[len(selected_reality):len(selected_reality) + remaining]
+        selected_reality.extend(extra_reality)
+        
+    combined = selected_hy2 + selected_reality
     
     final_confs = []
-    for idx, (conf_base, pms) in enumerate(selected_nodes, 1):
-        cc = COUNTRIES[(idx - 1) % len(COUNTRIES)]
-        remark = f"VIP-{idx:02d} [{cc}] {tag}"
+    for idx, (conf_base, pms) in enumerate(combined, 1):
+        cc = EURO_COUNTRIES[(idx - 1) % len(EURO_COUNTRIES)]
+        icon = "🚀" if ("hy2" in conf_base or "tuic" in conf_base) else "⚡"
+        remark = f"VIP-{idx:02d} [{cc}] {icon} {tag}"
         final_confs.append(f"{conf_base}#{remark}")
     
     if not final_confs:

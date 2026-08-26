@@ -166,7 +166,7 @@ async def init_db():
             VALUES (?, ?, 'channel', 28800, 1)
             ON CONFLICT(chat_id) DO UPDATE SET interval_seconds = 28800, is_active = 1
             """,
-            ("@Internet_azad369", "کانال اصلی اینترنت آزاد")
+            ("@muntivpn", "کانال اصلی مونتی وی‌پی‌ان")
         )
         await db.execute(
             """
@@ -174,15 +174,16 @@ async def init_db():
             VALUES (?, ?, 'channel', 28800, 1)
             ON CONFLICT(chat_id) DO UPDATE SET interval_seconds = 28800, is_active = 1
             """,
-            ("@Muntivpn", "کانال دوم مانتی وی‌پی‌ان")
+            ("@Internet_azad369", "کانال دوم اینترنت آزاد")
         )
+
 
         # مقداردهی اولیه آمار
         await db.execute("INSERT OR IGNORE INTO stats (id, total_sent) VALUES (1, 0)")
 
         # مقداردهی اولیه تنظیمات
         default_settings = {
-            "channel_id": "@Internet_azad369",
+            "channel_id": "@muntivpn",
             "auto_send": "0",  # 0: خاموش, 1: روشن (پیش‌فرض: خاموش تا زمان روشن کردن توسط ادمین)
             "auto_harvest": "1", # 0: خاموش, 1: روشن (دریافت خودکار از گیت‌هاب)
             "harvest_interval_hours": "2", # هر 2 ساعت
@@ -191,14 +192,18 @@ async def init_db():
             "min_delay": str(DEFAULT_MIN_DELAY),
             "max_delay": str(DEFAULT_MAX_DELAY),
             "current_cycle": "1",
-            "tag": "@Internet_azad369",
+            "tag": "@muntivpn",
             "custom_header": "🚀 **سرور پرسرعت و رایگان**",
-            "custom_footer": "🆔 @Internet_azad369\n🌐 اینترنت آزاد برای همه",
+            "custom_footer": "🆔 @muntivpn\n🌐 Munti VPN",
         }
 
         for key, val in default_settings.items():
             await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
         await db.execute("UPDATE settings SET value = 'mahsa' WHERE key = 'source_mode'")
+        await db.execute("UPDATE settings SET value = '@muntivpn' WHERE key = 'tag'")
+        await db.execute("UPDATE settings SET value = '@muntivpn' WHERE key = 'channel_id'")
+        await db.execute("UPDATE settings SET value = '🆔 @muntivpn\\n🌐 Munti VPN' WHERE key = 'custom_footer'")
+
 
         # منابع پیش‌فرض (خالص مهسا نت)
         from harvester import DEFAULT_SUBSCRIPTION_SOURCES

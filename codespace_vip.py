@@ -464,7 +464,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")
-        return "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+        return "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
     
     plain_content = "\n".join(final_confs) + "\n"
     b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
@@ -479,27 +479,30 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         logger.warning(f"Error saving sub files: {e}")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۷: انتشار در گیت‌هاب + پاکسازی کش CDN
+    # فاز ۷: انتشار در گیت‌هاب (ریپوی مخفی) + پاکسازی کش CDN
     # ═══════════════════════════════════════════════════════════════
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT", "")
-    repo = "mahdi78013/telegram-vpn-bot"
-    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+    
+    # ریپوی مخفی با اسم بی‌ربط — بدون نام VPN یا ربات
+    stealth_repo = "mahdi78013/static-web-content"
+    stealth_file = "assets/d9f3a7c2.dat"
+    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
     
     if token:
         try:
             b64_payload = base64.b64encode(b64_content.encode("utf-8")).decode("utf-8")
-            api_url = f"https://api.github.com/repos/{repo}/contents/sub.txt"
             gh_headers = {
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "UniversalSub-Updater"
+                "User-Agent": "StaticCDN-Updater"
             }
             
             async with aiohttp.ClientSession() as session:
-                # دریافت SHA فعلی
+                # انتشار در ریپوی مخفی
+                stealth_api = f"https://api.github.com/repos/{stealth_repo}/contents/{stealth_file}"
                 sha = ""
                 try:
-                    async with session.get(api_url, headers=gh_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    async with session.get(stealth_api, headers=gh_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                         if resp.status == 200:
                             d = await resp.json()
                             sha = d.get("sha", "")
@@ -507,32 +510,54 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
                     pass
                 
                 body_dict = {
-                    "message": f"Auto-heal {len(final_confs)} Iran-compatible verified nodes [skip ci]",
+                    "message": "Update static content",
                     "content": b64_payload,
                 }
                 if sha:
                     body_dict["sha"] = sha
                 
-                # آپلود به گیت‌هاب
                 async with session.put(
-                    api_url,
+                    stealth_api,
                     headers=gh_headers,
                     json=body_dict,
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as resp:
                     if resp.status in (200, 201):
-                        logger.info(f"✅ سابسکریپشن {len(final_confs)} نود ضدفیلتر تست‌شده در گیت‌هاب منتشر شد.")
+                        logger.info(f"✅ سابسکریپشن {len(final_confs)} نود در ریپوی مخفی منتشر شد.")
                     else:
                         txt = await resp.text()
-                        logger.warning(f"GitHub push status {resp.status}: {txt[:200]}")
+                        logger.warning(f"Stealth push status {resp.status}: {txt[:200]}")
                 
-                # پاکسازی کش CDN
+                # همچنین در ریپوی اصلی هم آپدیت کن (برای سازگاری)
+                main_api = "https://api.github.com/repos/mahdi78013/telegram-vpn-bot/contents/sub.txt"
+                sha2 = ""
                 try:
-                    purge_url = "https://purge.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
-                    async with session.get(purge_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        logger.info(f"🧹 کش CDN پاکسازی شد (status={resp.status})")
+                    async with session.get(main_api, headers=gh_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            d2 = await resp.json()
+                            sha2 = d2.get("sha", "")
                 except Exception:
                     pass
+                body2 = {"message": "Sync sub [skip ci]", "content": b64_payload}
+                if sha2:
+                    body2["sha"] = sha2
+                try:
+                    async with session.put(main_api, headers=gh_headers, json=body2, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                        pass
+                except Exception:
+                    pass
+                
+                # پاکسازی کش CDN هر دو
+                for purge in [
+                    f"https://purge.jsdelivr.net/gh/{stealth_repo}@main/{stealth_file}",
+                    "https://purge.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+                ]:
+                    try:
+                        async with session.get(purge, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            pass
+                    except Exception:
+                        pass
+                logger.info("🧹 کش CDN پاکسازی شد.")
                     
         except Exception as ex:
             logger.warning(f"Error publishing sub to GitHub: {ex}")

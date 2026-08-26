@@ -640,7 +640,7 @@ async def cb_deliver_operator_config(update: Update, context: ContextTypes.DEFAU
         f"<pre><code class=\"language-copy\">{escaped_conf}</code></pre>\n\n"
         f"-----------------\n"
         f"{proxies_line}\n\n"
-        f"👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n\n"
+        f"👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@Muntivpn</a>\n\n"
         f"✅ {tag}"
     )
     
@@ -675,7 +675,7 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
         link = p["link"]
         lines.append(f"{idx}️⃣ <a href=\"{link}\"><b>اتصال به پروکسی شماره {idx}</b></a> ({ping_str})")
         
-    lines.append("\n👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n")
+    lines.append("\n👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@Muntivpn</a>\n")
     lines.append(f"✅ {tag}")
     
     await query.message.reply_text(

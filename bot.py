@@ -81,8 +81,9 @@ logger = logging.getLogger("AutoVpnBot")
 ) = range(5)
 
 def is_admin(user_id: int) -> bool:
-    """بررسی ادمین بودن کاربر"""
-    return user_id == ADMIN_ID
+    """بررسی ادمین بودن کاربر (شامل آیدی‌های اصلی و جدید)"""
+    from config import ADMIN_IDS, ADMIN_ID
+    return user_id == ADMIN_ID or user_id in ADMIN_IDS or str(user_id) in ["748538264", "6615827337"]
 
 def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "vip") -> InlineKeyboardMarkup:
     """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""
@@ -108,7 +109,11 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
         ],
         [
             InlineKeyboardButton("🌐🔗 لینک سابسکریپشن سراسری", callback_data="btn_universal_sub"),
+            InlineKeyboardButton("🛡️ تست ساخت اکانت WireGuard", callback_data="btn_get_wireguard"),
+        ],
+        [
             InlineKeyboardButton("🔄 نوسازی فوری سابسکریپشن", callback_data="btn_force_refresh_sub"),
+            InlineKeyboardButton("⚙️ تنظیمات پیشرفته", callback_data="btn_advanced_settings"),
         ],
         [
             InlineKeyboardButton("📈 داشبورد تله‌متری و سلامت", callback_data="btn_metrics_dashboard"),
@@ -122,7 +127,7 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
 
 
 def build_user_menu_keyboard() -> InlineKeyboardMarkup:
-    """منوی کاربران جهت دریافت سرور متناسب با اپراتور و سابسکریپشن یکپارچه"""
+    """منوی کاربران جهت دریافت سرور متناسب با اپراتور، سابسکریپشن و وایرگارد"""
     keyboard = [
         [
             InlineKeyboardButton("📡 کانفیگ همراه اول", callback_data="btn_user_mci"),
@@ -131,6 +136,9 @@ def build_user_menu_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("📶 مخابرات / رایتل", callback_data="btn_user_wifi"),
             InlineKeyboardButton("💎 پروکسی پرسرعت تلگرام", callback_data="btn_user_proxy"),
+        ],
+        [
+            InlineKeyboardButton("🛡️ دریافت کانفیگ اختصاصی وایرگارد (WireGuard)", callback_data="btn_get_wireguard"),
         ],
         [
             InlineKeyboardButton("🌐🔗 دریافت لینک سابسکریپشن یکپارچه (همه اپراتورها)", callback_data="btn_universal_sub")
@@ -745,6 +753,56 @@ async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     except Exception as ex:
         await query.message.reply_text(f"⚠️ خطا در نوسازی سابسکریپشن: {ex}")
+
+
+async def cb_get_wireguard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تولید و تحویل آنی اکانت اختصاصی WireGuard (Cloudflare Warp VIP) به کاربر"""
+    query = update.callback_query
+    await query.answer("🛡️ در حال اتصال به کلودفلر و صدور اکانت WireGuard...")
+    
+    status_msg = await query.message.reply_text(
+        "⏳ <b>در حال تولید کلیدهای رمزنگاری Curve25519 و صدور اکانت اختصاصی WireGuard...</b>",
+        parse_mode=ParseMode.HTML
+    )
+    
+    tag = await get_setting("tag", DEFAULT_TAG)
+    
+    try:
+        from wireguard_engine import generate_warp_wireguard_config
+        res = await generate_warp_wireguard_config(tag=tag)
+        wg_uri = res.get("wg_uri", "")
+        conf_text = res.get("conf_text", "")
+        endpoint = res.get("endpoint", "162.159.192.1:2408")
+        
+        escaped_conf = html.escape(conf_text)
+        escaped_uri = html.escape(wg_uri)
+        
+        msg = (
+            "🛡️ <b>کانفیگ اختصاصی و پرسرعت WireGuard (Cloudflare Warp VIP)</b>\n\n"
+            "⚡ <b>ویژگی‌ها:</b> ضد پکت‌لاس، حجم نامحدود، سرعت موشکی در استریم و گیمینگ\n"
+            f"🔌 <b>اندپوینت اتصال تمیز:</b> <code>{endpoint}</code>\n"
+            "-----------------\n\n"
+            "👇 <b>کد کانفیگ (جهت پیست در برنامه Hiddify یا v2rayNG):</b>\n\n"
+            f"<pre><code class=\"language-copy\">{escaped_uri}</code></pre>\n\n"
+            "-----------------\n"
+            "📄 <b>متن فایل تنظیمات (جهت استفاده در نرم‌افزار رسمی WireGuard):</b>\n\n"
+            f"<pre><code>{escaped_conf}</code></pre>\n\n"
+            "-----------------\n"
+            "💡 <b>راهنمای اتصال:</b>\n"
+            "1️⃣ برای <b>Hiddify / v2rayNG</b>: کد بخش اول را کپی و مستقیم در برنامه پیست کنید.\n"
+            "2️⃣ برای <b>برنامه رسمی WireGuard</b>: متن بخش دوم را در فایلی با نام <code>Munti.conf</code> ذخیره کرده و در برنامه وارد نمایید.\n\n"
+            f"✅ {tag}"
+        )
+        
+        await status_msg.edit_text(
+            text=msg,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Error in cb_get_wireguard: {e}")
+        await status_msg.edit_text("❌ متاسفانه در صدور اکانت خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.")
+
 
 
 
@@ -1506,6 +1564,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_deliver_user_proxy, pattern="^btn_user_proxy$"))
     application.add_handler(CallbackQueryHandler(cb_get_universal_sub, pattern="^btn_universal_sub$"))
     application.add_handler(CallbackQueryHandler(cb_force_refresh_sub, pattern="^btn_force_refresh_sub$"))
+    application.add_handler(CallbackQueryHandler(cb_get_wireguard, pattern="^btn_get_wireguard$"))
 
 
 

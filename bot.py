@@ -757,12 +757,12 @@ async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def cb_get_wireguard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تولید و تحویل آنی اکانت اختصاصی WireGuard (Cloudflare Warp VIP) به کاربر"""
+    """تولید و ارسال فایل آماده .conf کانفیگ اختصاصی WireGuard به کاربر"""
     query = update.callback_query
-    await query.answer("🛡️ در حال اتصال به کلودفلر و صدور اکانت WireGuard...")
+    await query.answer("🛡️ در حال صدور فایل کانفیگ WireGuard...")
     
     status_msg = await query.message.reply_text(
-        "⏳ <b>در حال تولید کلیدهای رمزنگاری Curve25519 و صدور اکانت اختصاصی WireGuard...</b>",
+        "⏳ <b>در حال تولید کلیدهای امنیتی و ساخت فایل آماده کانفیگ WireGuard...</b>",
         parse_mode=ParseMode.HTML
     )
     
@@ -775,34 +775,39 @@ async def cb_get_wireguard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conf_text = res.get("conf_text", "")
         endpoint = res.get("endpoint", "162.159.192.1:2408")
         
-        escaped_conf = html.escape(conf_text)
+        # ساخت فایل مجازی .conf در حافظه
+        conf_bytes = conf_text.encode("utf-8")
+        file_doc = io.BytesIO(conf_bytes)
+        file_doc.name = "Munti_WireGuard.conf"
+        
         escaped_uri = html.escape(wg_uri)
         
-        msg = (
-            "🛡️ <b>کانفیگ اختصاصی و پرسرعت WireGuard (Cloudflare Warp VIP)</b>\n\n"
+        caption = (
+            "🛡️ <b>فایل کانفیگ اختصاصی WireGuard (Warp VIP)</b>\n\n"
             "⚡ <b>ویژگی‌ها:</b> ضد پکت‌لاس، حجم نامحدود، سرعت موشکی در استریم و گیمینگ\n"
             f"🔌 <b>اندپوینت اتصال تمیز:</b> <code>{endpoint}</code>\n"
             "-----------------\n\n"
-            "👇 <b>کد کانفیگ (جهت پیست در برنامه Hiddify یا v2rayNG):</b>\n\n"
+            "👇 <b>لینک سریع (جهت کپی در هیدیفای / v2rayNG):</b>\n\n"
             f"<pre><code class=\"language-copy\">{escaped_uri}</code></pre>\n\n"
             "-----------------\n"
-            "📄 <b>متن فایل تنظیمات (جهت استفاده در نرم‌افزار رسمی WireGuard):</b>\n\n"
-            f"<pre><code>{escaped_conf}</code></pre>\n\n"
-            "-----------------\n"
-            "💡 <b>راهنمای اتصال:</b>\n"
-            "1️⃣ برای <b>Hiddify / v2rayNG</b>: کد بخش اول را کپی و مستقیم در برنامه پیست کنید.\n"
-            "2️⃣ برای <b>برنامه رسمی WireGuard</b>: متن بخش دوم را در فایلی با نام <code>Munti.conf</code> ذخیره کرده و در برنامه وارد نمایید.\n\n"
+            "💡 <b>روش اتصال با ۱ کلیک:</b>\n"
+            "روی فایل ضمیمه‌شده کلیک کنید و آن را با برنامه <b>WireGuard</b>، <b>Hiddify</b> یا <b>v2rayNG</b> باز کنید تا خودکار نصب شود.\n\n"
             f"✅ {tag}"
         )
         
-        await status_msg.edit_text(
-            text=msg,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
+        await query.message.reply_document(
+            document=file_doc,
+            filename="Munti_WireGuard.conf",
+            caption=caption,
+            parse_mode=ParseMode.HTML
         )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Error in cb_get_wireguard: {e}")
-        await status_msg.edit_text("❌ متاسفانه در صدور اکانت خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.")
+        await status_msg.edit_text("❌ متاسفانه در صدور فایل کانفیگ خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش فرمایید.")
 
 
 

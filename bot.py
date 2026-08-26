@@ -108,14 +108,18 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
         ],
         [
             InlineKeyboardButton("🌐🔗 لینک سابسکریپشن سراسری", callback_data="btn_universal_sub"),
-            InlineKeyboardButton("📈 داشبورد تله‌متری و سلامت", callback_data="btn_metrics_dashboard"),
+            InlineKeyboardButton("🔄 نوسازی فوری سابسکریپشن", callback_data="btn_force_refresh_sub"),
         ],
         [
+            InlineKeyboardButton("📈 داشبورد تله‌متری و سلامت", callback_data="btn_metrics_dashboard"),
             InlineKeyboardButton("📱 منوی کاربران (تست اپراتورها)", callback_data="btn_user_menu_view"),
+        ],
+        [
             InlineKeyboardButton("🔄 بروزرسانی منو", callback_data="btn_main_menu"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 def build_user_menu_keyboard() -> InlineKeyboardMarkup:
     """منوی کاربران جهت دریافت سرور متناسب با اپراتور و سابسکریپشن یکپارچه"""
@@ -696,12 +700,14 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         "👇 <b>لینک اختصاصی شما (جهت کپی یک‌بار روی کادر زیر بزنید):</b>\n\n"
         f"<code>{sub_url}</code>\n\n"
         "-----------------\n"
-        "💡 <b>آموزش سریع اتصال در ۳۰ ثانیه:</b>\n"
+        "💡 <b>آموزش سریع اتصال و بروزرسانی خودکار:</b>\n"
         "1️⃣ روی کادر بالا بزنید تا لینک به صورت خودکار کپی شود.\n"
-        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b> یا <b>NekoBox</b> یا <b>Streisand</b>، وارد بخش <b>Subscription (گروه‌های اشتراک)</b> شوید.\n"
+        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b> یا <b>Streisand</b>، وارد بخش <b>Subscription (گروه‌های اشتراک)</b> شوید.\n"
         "3️⃣ لینک را در کادر URL پیست کنید و ذخیره نمایید.\n"
         "4️⃣ دکمه <b>Update subscription (بروزرسانی اشتراک)</b> را بزنید تا تمام ۵۰ سرور لود شوند.\n\n"
-        "✨ <i>این لینک خودترمیم‌شونده است و در هر لحظه به آخرین سرورهای زنده و متصل وصل می‌شود.</i>\n\n"
+        "🌟 <b>ترفند اتصال همیشگی بدون قطعی (Zero-Touch):</b>\n"
+        "• در تنظیمات برنامه، گزینه <b>Auto-Update (بروزرسانی خودکار)</b> را روی <b>هر ۱ ساعت</b> بگذارید تا برنامه همیشه بی‌صدا و خودکار سرورهای نو را دانلود کند.\n"
+        "• در برنامه هیدیفای، اتصال را روی گزینه <b>lowest</b> یا <b>balance</b> بگذارید تا همیشه سریع‌ترین پینگ انتخاب شود.\n\n"
         f"✅ {tag}"
     )
     
@@ -710,6 +716,31 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
+
+async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نوسازی و غربالگری بلادرنگ تمام سرورهای سابسکریپشن توسط ادمین"""
+    query = update.callback_query
+    if not is_admin(update.effective_user.id):
+        await query.answer("❌ دسترسی غیرمجاز.")
+        return
+        
+    await query.answer("🔄 در حال تست زنده پینگ و غربالگری ۵۰ سرور سابسکریپشن...")
+    try:
+        from codespace_vip import generate_and_publish_universal_sub
+        tag = await get_setting("tag", DEFAULT_TAG)
+        url = await generate_and_publish_universal_sub(tag=tag)
+        await query.message.reply_text(
+            "✅ <b>سابسکریپشن سراسری با موفقیت غربالگری و نوسازی شد!</b>\n\n"
+            "• تمامی سرورهای سوخته یا کند حذف شدند.\n"
+            "• سرورهای جدید تست‌شده با پینگ سبز جایگزین شدند.\n"
+            "• فایل سابسکریپشن روی مخزن گیت‌هاب بروزرسانی شد.\n\n"
+            f"🔗 <code>{url}</code>",
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as ex:
+        await query.message.reply_text(f"⚠️ خطا در نوسازی سابسکریپشن: {ex}")
+
 
 
 
@@ -1469,6 +1500,10 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_deliver_operator_config, pattern="^btn_user_(mci|mtn|wifi)$"))
     application.add_handler(CallbackQueryHandler(cb_deliver_user_proxy, pattern="^btn_user_proxy$"))
     application.add_handler(CallbackQueryHandler(cb_get_universal_sub, pattern="^btn_universal_sub$"))
+    application.add_handler(CallbackQueryHandler(cb_force_refresh_sub, pattern="^btn_force_refresh_sub$"))
+
+
+
 
     
     application.add_handler(CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$"))

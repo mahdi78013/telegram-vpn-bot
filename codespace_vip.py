@@ -316,7 +316,6 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     # ═══════════════════════════════════════════════════════════════
     # فاز ۳: دانلود غیرهمزمان از منابع متنوع (aiohttp)
     # ═══════════════════════════════════════════════════════════════
-    sources = [
     # منابع برتر: ترکیب Hysteria 2، TUIC و VLESS Reality اروپایی
     sources = [
         # Hysteria 2 & TUIC (پروتکل‌های پرسرعت بر پایه UDP ضد پکت‌لاس)

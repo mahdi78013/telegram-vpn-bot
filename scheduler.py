@@ -105,7 +105,7 @@ def format_batch_channel_post(
         
     lines.append("\n-----------------")
     lines.append(f"{proxies_section}\n")
-    lines.append("👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n")
+    lines.append("👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@Muntivpn</a>\n")
     lines.append(f"✅ {tag_clean}")
     
     return "\n".join(lines), None

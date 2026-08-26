@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import logging
 import asyncio
 import io
+import html
 from typing import Dict, Any, List, Optional, Tuple
 
 from telegram import (

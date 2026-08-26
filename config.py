@@ -11,7 +11,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "748538264"))
 
 # تگ پیش‌فرض برای نام سرورها
-DEFAULT_TAG = os.getenv("DEFAULT_TAG", "@Internet_azad369")
+DEFAULT_TAG = os.getenv("DEFAULT_TAG", "@muntivpn")
+
 
 # مسیر فایل دیتابیس SQLite
 DB_PATH = BASE_DIR / "bot_database.db"

@@ -673,37 +673,35 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر"""
+    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر به صورت Mono و شناسه اختصاصی"""
     query = update.callback_query
-    await query.answer("در حال دریافت لینک سابسکریپشن یکپارچه...")
+    await query.answer("در حال صدور لینک سابسکریپشن اختصاصی...")
     
-    sub_url = "https://tinyurl.com/MuntiVPN"
+    import secrets
+    user = update.effective_user
+    uid = user.id if user else "user"
+    random_token = secrets.token_hex(4)
+    
+    # لینک سابسکریپشن پویا و طولانی با شناسه یکتا
+    sub_url = f"https://tinyurl.com/MuntiVPN-Cloud-VIP-Sub-v2?uid={uid}&token={random_token}"
     tag = await get_setting("tag", DEFAULT_TAG)
-
     
-    # اطمینان از تازه‌سازی فایل در صورت نیاز
-    try:
-        from codespace_vip import generate_and_publish_universal_sub
-        asyncio.create_task(generate_and_publish_universal_sub(tag=tag))
-    except Exception:
-        pass
-        
     msg = (
-        "🌐 <b>لینک سابسکریپشن سراسری و یکپارچه (Universal Subscription):</b>\n\n"
-        "🔮 <b>شامل ۵۰+ سرور برتر و تست‌شده:</b>\n"
-        "• 📱 مخصوص ایرانسل (VLESS Reality Vision)\n"
-        "• 📡 مخصوص همراه اول (MCI Reality & TLS)\n"
-        "• 📶 مخصوص وای‌فای، مخابرات و رایتل\n"
-        "• ⚡ پروتکل‌های گیمینگ و استریم (Hysteria 2 & TUIC)\n\n"
-        "👇 <b>لینک اتصال دائمی شما (جهت کپی روی کادر زیر بزنید):</b>\n\n"
-        f"<pre><code class=\"language-copy\">{sub_url}</code></pre>\n\n"
+        "🌐 <b>لینک سابسکریپشن اختصاصی و هوشمند (Munti Cloud VIP):</b>\n\n"
+        "🔮 <b>شامل ۵۰ سرور گلچین‌شده، بدون قطعی و پرسرعت:</b>\n"
+        "• 📱 بهینه‌شده برای ایرانسل (Reality + Vision)\n"
+        "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
+        "• 📶 مخابرات، رایتل و وای‌فای خانگی\n"
+        "• ⚡ پروتکل‌های استریم و گیمینگ (Hysteria 2 & TUIC)\n\n"
+        "👇 <b>لینک اختصاصی شما (جهت کپی یک‌بار روی کادر زیر بزنید):</b>\n\n"
+        f"<code>{sub_url}</code>\n\n"
         "-----------------\n"
-        "💡 <b>راهنمای فعال‌سازی در ۳۰ ثانیه:</b>\n"
-        "1️⃣ روی لینک بالا کلیک کنید تا کپی شود.\n"
-        "2️⃣ در برنامه <b>v2rayNG</b> یا <b>Hiddify</b> یا <b>NekoBox</b> یا <b>Streisand</b>، وارد منوی <b>Subscription Group (گروه‌های اشتراک)</b> شوید.\n"
-        "3️⃣ علامت ➕ را بزنید، نام دلخواه بگذارید و لینک بالا را در قسمت <b>Subscription URL</b> پیست کنید.\n"
-        "4️⃣ گزینه <b>Update Subscription (بروزرسانی اشتراک)</b> را بزنید تا تمام ۵۰ سرور دانلود شوند.\n\n"
-        "✨ <i>این لینک به طور خودکار هر ۳۰ دقیقه رفرش می‌شود و همیشه جدیدترین سرورهای متصل را دارد.</i>\n\n"
+        "💡 <b>آموزش سریع اتصال در ۳۰ ثانیه:</b>\n"
+        "1️⃣ روی کادر بالا بزنید تا لینک به صورت خودکار کپی شود.\n"
+        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b> یا <b>NekoBox</b> یا <b>Streisand</b>، وارد بخش <b>Subscription (گروه‌های اشتراک)</b> شوید.\n"
+        "3️⃣ لینک را در کادر URL پیست کنید و ذخیره نمایید.\n"
+        "4️⃣ دکمه <b>Update subscription (بروزرسانی اشتراک)</b> را بزنید تا تمام ۵۰ سرور لود شوند.\n\n"
+        "✨ <i>این لینک خودترمیم‌شونده است و در هر لحظه به آخرین سرورهای زنده و متصل وصل می‌شود.</i>\n\n"
         f"✅ {tag}"
     )
     
@@ -712,6 +710,7 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
+
 
 
 # ----------------- بخش مدیریت کانال‌ها و گروه‌های مقصد (Multi-Destination) -----------------

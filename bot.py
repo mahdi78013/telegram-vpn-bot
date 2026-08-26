@@ -677,43 +677,49 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر به صورت Mono و شناسه اختصاصی"""
+    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر پس از تست و انتخاب زنده ۱۰ سرور پینگ‌سبز"""
     query = update.callback_query
-    await query.answer("در حال صدور لینک سابسکریپشن اختصاصی...")
+    await query.answer("🔍 در حال اسکن و تست زنده ۱۰ سرور پرسرعت...")
     
-    import secrets
-    user = update.effective_user
-    uid = user.id if user else "user"
-    random_token = secrets.token_hex(4)
+    # پیام موقت جهت تفکر و اسکن سرورها
+    status_msg = await query.message.reply_text(
+        "⏳ <b>در حال ارزیابی اتصال و غربالگری ۱۰ سرور با پینگ سبز...</b>",
+        parse_mode=ParseMode.HTML
+    )
     
-    # لینک‌های سابسکریپشن: لینک مستقیم ضد فیلتر CDN بدون نیاز به وی‌پی‌ان اولیه
-    direct_cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
     tag = await get_setting("tag", DEFAULT_TAG)
     
+    try:
+        from codespace_vip import generate_and_publish_universal_sub
+        direct_cdn_url = await generate_and_publish_universal_sub(tag=tag, target_count=10)
+    except Exception:
+        direct_cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+    
     msg = (
-        "🌐 <b>لینک سابسکریپشن اختصاصی و هوشمند (Munti Cloud VIP):</b>\n\n"
-        "🔮 <b>شامل ۵۰ سرور گلچین‌شده، بدون قطعی و پرسرعت:</b>\n"
+        "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور تست‌شده با پینگ سبز):</b>\n\n"
+        "🔮 <b>شامل ۱۰ سرور گلچین‌شده با تضمین اتصال و پینگ پایدار:</b>\n"
         "• 📱 بهینه‌شده برای ایرانسل (Reality + Vision)\n"
         "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
         "• 📶 مخابرات، رایتل و وای‌فای خانگی\n"
-        "• ⚡ پروتکل‌های استریم و گیمینگ (Hysteria 2 & TUIC)\n\n"
+        "• ⚡ پروتکل‌های استریم و گیمینگ\n\n"
         "👇 <b>لینک مستقیم ضد فیلتر (بدون نیاز به وی‌پی‌ان جهت اضافه کردن):</b>\n\n"
         f"<code>{direct_cdn_url}</code>\n\n"
         "-----------------\n"
         "💡 <b>آموزش اتصال سریع در ۲ مرحله:</b>\n"
         "1️⃣ روی کادر بالا بزنید تا لینک به صورت خودکار کپی شود.\n"
-        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b>، در بخش <b>Subscription (گروه‌های اشتراک)</b> این لینک را وارد کنید (بدون نیاز به روشن بودن وی‌پی‌ان تمام ۵۰ سرور فوراً لود می‌شوند).\n\n"
+        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b>، در بخش <b>Subscription (گروه‌های اشتراک)</b> این لینک را وارد کنید.\n\n"
         "🌟 <b>ترفند اتصال پایدار:</b>\n"
         "• در هیدیفای اتصال را روی <b>lowest</b> یا <b>balance</b> بگذارید تا خودکار به سریع‌ترین سرور وصل شوید.\n"
         "• گزینه <b>Auto-Update (بروزرسانی خودکار)</b> را در برنامه روی ۱ ساعت بگذارید تا همیشه سرورهای نو داشته باشید.\n\n"
         f"✅ {tag}"
     )
     
-    await query.message.reply_text(
+    await status_msg.edit_text(
         text=msg,
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
+
 
 
 async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):

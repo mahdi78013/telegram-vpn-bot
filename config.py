@@ -7,8 +7,9 @@ BASE_DIR = Path(__file__).resolve().parent
 # توکن ربات تلگرام (از Environment Variables خوانده می‌شود)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-# آیدی عددی ادمین اصلی
+# آیدی‌های عددی ادمین‌ها
 ADMIN_ID = int(os.getenv("ADMIN_ID", "748538264"))
+ADMIN_IDS = [748538264, 6615827337]
 
 # تگ پیش‌فرض برای نام سرورها
 DEFAULT_TAG = os.getenv("DEFAULT_TAG", "@muntivpn")

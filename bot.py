@@ -132,10 +132,11 @@ def build_user_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🌐🔗 دریافت لینک سابسکریپشن یکپارچه (همه اپراتورها)", callback_data="btn_universal_sub")
         ],
         [
-            InlineKeyboardButton("👑 عضویت در کانال اینترنت آزاد", url="https://t.me/Internet_azad369")
+            InlineKeyboardButton("👑 عضویت در کانال Munti VPN", url="https://t.me/muntivpn")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 def build_cancel_keyboard() -> InlineKeyboardMarkup:
     """دکمه انصراف و بازگشت"""
@@ -196,10 +197,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user.id):
         user_text = (
             f"سلام {user.first_name} عزیز! 🌹\n\n"
-            "🔮 به سامانه هوشمند **اینترنت آزاد (Free Vpn)** خوش آمدید.\n"
+            "🔮 به سامانه هوشمند **Munti VPN** خوش آمدید.\n"
             "⚡ سرورها و پروکسی‌های ما توسط **هوش مصنوعی** پایش می‌شوند و پینگ سبز دارند.\n\n"
             "👇 **لطفاً اپراتور سیم‌کارت خود را انتخاب کنید:**"
         )
+
         await update.message.reply_text(
             text=user_text,
             reply_markup=build_user_menu_keyboard(),
@@ -645,8 +647,9 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
     proxies = get_current_top_proxies(3)
     
     if not proxies:
-        await query.message.reply_text("⚠️ در حال حاضر پروکسی تازه‌ای ثبت نشده است. لطفاً به کانال سر بزنید:\n@Internet_azad369")
+        await query.message.reply_text("⚠️ در حال حاضر پروکسی تازه‌ای ثبت نشده است. لطفاً به کانال سر بزنید:\n@muntivpn")
         return
+
         
     tag = await get_setting("tag", DEFAULT_TAG)
     

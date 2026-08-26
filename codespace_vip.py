@@ -194,7 +194,7 @@ def setup_and_start_local_node():
 SUB_FILE_PATH = os.path.join(os.path.dirname(__file__), "sub.txt")
 SUB_PLAIN_PATH = os.path.join(os.path.dirname(__file__), "sub_plain.txt")
 
-async def generate_and_publish_universal_sub(tag: str = "@Internet_azad369") -> str:
+async def generate_and_publish_universal_sub(tag: str = "@muntivpn") -> str:
     """
     تولید و انتشار خودکار لینک سابسکریپشن سراسری و یکپارچه شامل تمام پروتکل‌ها و اپراتورها:
     - ۳۰ کانفیگ فوق‌العاده سریع VLESS Reality (مخصوص ایرانسل و همراه اول)
@@ -328,7 +328,7 @@ def update_subscription_files(domain: str, uuid: str = "f12abdbd-23a8-414b-a89e-
     except Exception:
         pass
 
-async def get_latest_local_config(tag: str = "@Internet_azad369") -> Dict[str, Any]:
+async def get_latest_local_config(tag: str = "@muntivpn") -> Dict[str, Any]:
     """تولید کانفیگ محلی در صورت نیاز"""
     config_data = None
     if os.path.exists(LOCAL_LIVE_PATH):
@@ -362,7 +362,7 @@ async def get_latest_local_config(tag: str = "@Internet_azad369") -> Dict[str, A
     }
 
 async def get_latest_codespace_config(
-    tag: str = "@Internet_azad369",
+    tag: str = "@muntivpn",
     carrier: str = "all",
     region: str = "all"
 ) -> Dict[str, Any]:

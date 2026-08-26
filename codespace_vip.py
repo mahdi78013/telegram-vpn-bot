@@ -251,7 +251,17 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn") -> str:
     except Exception as e:
         logger.warning(f"Error reading configs for sub: {e}")
         
-    # اگر هنوز دیتابیس کامل پر نشده بود، از L2 Pool کمک بگیر
+    # اگر هنوز دیتابیس کامل پر نشده بود، از مخازن زنده استخراج کن
+    if len(configs_to_pack) < 15:
+        try:
+            from config_delivery_engine import delivery_engine
+            live_nodes = await delivery_engine._fetch_live_candidates()
+            for n in live_nodes:
+                if n.raw_config not in configs_to_pack:
+                    configs_to_pack.append(n.raw_config)
+        except Exception as e:
+            logger.warning(f"Error fetching live candidates for sub: {e}")
+            
     if len(configs_to_pack) < 5:
         from node_registry import registry
         pool = registry.get_l2_pool(min_score=20.0)
@@ -265,8 +275,14 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn") -> str:
         transformed, flag, proto = transform_config(c, tag=tag)
         final_confs.append(transformed)
         
+    # حفاظت در برابر فایل خالی: اگر کمتر از ۵ کانفیگ بود منتشر نکن
+    if len(final_confs) < 5:
+        logger.warning(f"Aborting sub publish: only {len(final_confs)} configs available.")
+        return "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+        
     plain_content = "\n".join(final_confs) + "\n"
     b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
+
     
     # ذخیره محلی
     try:

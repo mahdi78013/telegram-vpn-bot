@@ -383,40 +383,63 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     logger.info(f"📥 {len(candidates)} کانفیگ خام از {len(sources)} منبع جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: آماده‌سازی + فیلتر ایران + حذف تکراری
+    # فاز ۴: پاکسازی SNIهای مسدود و ساخت پارامترهای استاندارد Reality
     # ═══════════════════════════════════════════════════════════════
+    BLOCKED_SNIS = ("railway.app", "workers.dev", "pages.dev", "cloudflare.com", "t.me", "telegram.org", "discord.com")
+    
     cleaned = []
+    seen_hosts = set()
+    
     for c in candidates:
-        # حذف remark قبلی
-        if "#" in c and not c.startswith("vmess://"):
-            base = c.split("#")[0]
-        else:
-            base = c
+        if not c.startswith("vless://"):
+            continue
+            
+        base = c.split("#")[0] if "#" in c else c
         
-        # اصلاح پارامترها
-        if not base.startswith("vmess://"):
-            base = sanitize_url_parameters(base)
-            # اصلاح Reality fp
-            if "security=reality" in base or "pbk=" in base:
-                if "fp=firefox" in base:
-                    base = base.replace("fp=firefox", "fp=chrome")
-                fp_match = re.search(r'fp=([^&# ]*)', base)
-                if not fp_match or not fp_match.group(1) or fp_match.group(1) in ("none", "null", ""):
-                    sep = "&" if "?" in base else "?"
-                    base += f"{sep}fp=chrome"
-                if "flow=" not in base:
-                    sep = "&" if "?" in base else "?"
-                    base += f"{sep}flow=xtls-rprx-vision"
+        # استخراج host و port و query
+        m = re.search(r'^vless://([^@]+)@([^:/?#]+):(\d+)\?(.*)$', base)
+        if not m:
+            continue
+            
+        uuid, host, port, query_str = m.group(1), m.group(2), m.group(3), m.group(4)
         
-        cleaned.append(base)
+        if host in seen_hosts:
+            continue
+            
+        is_reality = "security=reality" in query_str or "pbk=" in query_str
+        is_tls = "security=tls" in query_str
+        
+        if not (is_reality or is_tls):
+            continue
+            
+        # استخراج SNI
+        sni_match = re.search(r'sni=([^&#]+)', query_str)
+        sni = sni_match.group(1) if sni_match else host
+        
+        # فیلتر دامنه‌های مسدودشده در فایروال ایران
+        if any(b in sni.lower() for b in BLOCKED_SNIS):
+            continue
+            
+        if is_reality:
+            pbk_match = re.search(r'pbk=([^&#]+)', query_str)
+            if not pbk_match:
+                continue
+            pbk = pbk_match.group(1)
+            
+            sid_match = re.search(r'sid=([^&#]+)', query_str)
+            sid = sid_match.group(1) if sid_match else ""
+            
+            # بازسازی کانفیگ تمیز و بدون پارامترهای اسپم تلگرام
+            pristine_url = (
+                f"vless://{uuid}@{host}:{port}?"
+                f"encryption=none&flow=xtls-rprx-vision&fp=chrome&headerType=none&"
+                f"pbk={pbk}&security=reality&sid={sid}&sni={sni}&type=tcp"
+            )
+            cleaned.append(pristine_url)
+            seen_hosts.add(host)
     
-    # فیلتر ضدفیلترینگ ایران
-    iran_ok = [c for c in cleaned if is_iran_compatible(c)]
-    logger.info(f"🛡️ {len(iran_ok)} کانفیگ ضدفیلتر ایران از {len(cleaned)} کل کاندیدا.")
-    
-    # حذف تکراری‌ها
-    unique = deduplicate_by_server(iran_ok)
-    logger.info(f"🔄 {len(unique)} سرور یکتا پس از حذف تکراری‌ها.")
+    logger.info(f"🛡️ {len(cleaned)} سرور Reality با SNI باز و معتبر استخراج شد.")
+    unique = cleaned
     
     # ═══════════════════════════════════════════════════════════════
     # فاز ۵: تست موازی پینگ زنده

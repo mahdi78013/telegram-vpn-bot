@@ -677,8 +677,9 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer("در حال دریافت لینک سابسکریپشن یکپارچه...")
     
-    sub_url = "https://raw.githubusercontent.com/mahdi78013/telegram-vpn-bot/main/sub.txt"
+    sub_url = "https://tinyurl.com/MuntiVPN"
     tag = await get_setting("tag", DEFAULT_TAG)
+
     
     # اطمینان از تازه‌سازی فایل در صورت نیاز
     try:

@@ -5,11 +5,11 @@ import random
 import logging
 import datetime
 import aiohttp
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
 
 logger = logging.getLogger("WireGuardEngine")
 
-# لیست آیپی‌های تمیز و بدون قطعی کلودفلر وارپ برای ایران
 WARP_CLEAN_ENDPOINTS = [
     "162.159.192.1:2408",
     "162.159.193.10:2408",
@@ -29,12 +29,22 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
     - اتصال به آیپی تمیز (Clean IP) جهت حداکثر سرعت در ایران
     """
     try:
-        # ۱. تولید جفت کلید رمزنگاری X25519
+        # ۱. تولید جفت کلید رمزنگاری X25519 به روش استاندارد
         priv_key_obj = x25519.X25519PrivateKey.generate()
         pub_key_obj = priv_key_obj.public_key()
         
-        priv_b64 = base64.b64encode(priv_key_obj.private_bytes_raw()).decode("utf-8")
-        pub_b64 = base64.b64encode(pub_key_obj.public_bytes_raw()).decode("utf-8")
+        priv_raw = priv_key_obj.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        pub_raw = pub_key_obj.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )
+        
+        priv_b64 = base64.b64encode(priv_raw).decode("utf-8")
+        pub_b64 = base64.b64encode(pub_raw).decode("utf-8")
         
         # ۲. ایجاد نشست با کلودفلر
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -52,28 +62,35 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             "Content-Type": "application/json"
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.cloudflareclient.com/v0a2158/reg",
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=8)
-            ) as resp:
-                if resp.status not in (200, 201):
-                    raise Exception(f"Warp API returned status {resp.status}")
-                res_json = await resp.json()
-                
-        result = res_json.get("result", {})
-        config_data = result.get("config", {})
-        interface = config_data.get("interface", {})
-        addresses = interface.get("addresses", {})
+        v4_addr = "172.16.0.2/32"
+        v6_addr = "2606:4700:110:8735:6b25:958b:b03b:5757/128"
+        peer_pub = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
         
-        v4_addr = addresses.get("v4", "172.16.0.2/32")
-        v6_addr = addresses.get("v6", "2606:4700:110:8::2/128")
-        
-        peers = config_data.get("peers", [{}])
-        peer_pub = peers[0].get("public_key", "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=")
-        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.cloudflareclient.com/v0a2158/reg",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status in (200, 201):
+                        res_json = await resp.json()
+                        # Cloudflare API returns fields at root or inside result
+                        root = res_json.get("result", res_json)
+                        cfg = root.get("config", {})
+                        if cfg:
+                            addrs = cfg.get("interface", {}).get("addresses", {})
+                            if addrs.get("v4"):
+                                v4_addr = addrs["v4"]
+                            if addrs.get("v6"):
+                                v6_addr = addrs["v6"]
+                            peers = cfg.get("peers", [])
+                            if peers and peers[0].get("public_key"):
+                                peer_pub = peers[0]["public_key"]
+        except Exception as api_err:
+            logger.warning(f"Warp API fallback active: {api_err}")
+            
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         
         # ۳. ساخت فایل متنی استاندارد WireGuard (.conf)
@@ -81,7 +98,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             f"[Interface]\n"
             f"PrivateKey = {priv_b64}\n"
             f"Address = {v4_addr}, {v6_addr}\n"
-            f"DNS = 1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001\n"
+            f"DNS = 1.1.1.1, 1.0.0.1\n"
             f"MTU = 1280\n\n"
             f"[Peer]\n"
             f"PublicKey = {peer_pub}\n"
@@ -89,8 +106,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             f"Endpoint = {endpoint}\n"
         )
         
-        # ۴. ساخت لینک وایرگارد برای نرم‌افزارهای کلاینت
-        # فرمت: wireguard://PrivateKey@Endpoint?address=...&publickey=...
+        # ۴. ساخت لینک وایرگارد برای نرم‌افزارهای کلاینت (Hiddify / v2rayNG / MahsaNG)
         host_part, port_part = endpoint.split(":")
         wg_uri = (
             f"wireguard://{priv_b64}@{host_part}:{port_part}"
@@ -111,12 +127,12 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
         
     except Exception as e:
         logger.error(f"Error generating WireGuard Warp config: {e}")
-        # در صورت بروز خطای مقطعی کلودفلر، یک کانفیگ معتبر پشتیبان تولید کن
-        fallback_priv = "aA" + base64.b64encode(os.urandom(30)).decode("utf-8")[:42] + "="
+        # تولید مطمئن در هر شرایطی
+        rand_priv = base64.b64encode(os.urandom(32)).decode("utf-8")
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         conf_text = (
             f"[Interface]\n"
-            f"PrivateKey = {fallback_priv}\n"
+            f"PrivateKey = {rand_priv}\n"
             f"Address = 172.16.0.2/32, 2606:4700:110:8735:6b25:958b:b03b:5757/128\n"
             f"DNS = 1.1.1.1, 1.0.0.1\n"
             f"MTU = 1280\n\n"
@@ -127,7 +143,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
         )
         host_part, port_part = endpoint.split(":")
         wg_uri = (
-            f"wireguard://{fallback_priv}@{host_part}:{port_part}"
+            f"wireguard://{rand_priv}@{host_part}:{port_part}"
             f"?address=172.16.0.2/32&publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=&mtu=1280&reserved=0,0,0"
             f"#Warp-VIP [DE] 🚀 {tag}"
         )

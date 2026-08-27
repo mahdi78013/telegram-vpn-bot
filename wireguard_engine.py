@@ -93,13 +93,22 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         
-        # ۳. ساخت فایل متنی استاندارد WireGuard (.conf)
+        # ۳. ساخت فایل متنی استاندارد ضد فیلتر AmneziaWG / WireGuard (.conf)
         conf_text = (
             f"[Interface]\n"
             f"PrivateKey = {priv_b64}\n"
             f"Address = {v4_addr}, {v6_addr}\n"
             f"DNS = 1.1.1.1, 1.0.0.1\n"
-            f"MTU = 1280\n\n"
+            f"MTU = 1280\n"
+            f"Jc = 4\n"
+            f"Jmin = 40\n"
+            f"Jmax = 70\n"
+            f"S1 = 0\n"
+            f"S2 = 0\n"
+            f"H1 = 1\n"
+            f"H2 = 2\n"
+            f"H3 = 3\n"
+            f"H4 = 4\n\n"
             f"[Peer]\n"
             f"PublicKey = {peer_pub}\n"
             f"AllowedIPs = 0.0.0.0/0, ::/0\n"
@@ -127,7 +136,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
         
     except Exception as e:
         logger.error(f"Error generating WireGuard Warp config: {e}")
-        # تولید مطمئن در هر شرایطی
+        # تولید مطمئن در هر شرایطی با پارامترهای ضد فیلتر AmneziaWG
         rand_priv = base64.b64encode(os.urandom(32)).decode("utf-8")
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         conf_text = (
@@ -135,7 +144,16 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             f"PrivateKey = {rand_priv}\n"
             f"Address = 172.16.0.2/32, 2606:4700:110:8735:6b25:958b:b03b:5757/128\n"
             f"DNS = 1.1.1.1, 1.0.0.1\n"
-            f"MTU = 1280\n\n"
+            f"MTU = 1280\n"
+            f"Jc = 4\n"
+            f"Jmin = 40\n"
+            f"Jmax = 70\n"
+            f"S1 = 0\n"
+            f"S2 = 0\n"
+            f"H1 = 1\n"
+            f"H2 = 2\n"
+            f"H3 = 3\n"
+            f"H4 = 4\n\n"
             f"[Peer]\n"
             f"PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\n"
             f"AllowedIPs = 0.0.0.0/0, ::/0\n"

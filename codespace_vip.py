@@ -448,12 +448,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
             sid_match = re.search(r'sid=([^&#]+)', query_str)
             sid = sid_match.group(1) if sid_match else ""
             
-            pristine_url = (
-                f"vless://{uuid}@{host}:{port}?"
-                f"encryption=none&flow=xtls-rprx-vision&fp=chrome&headerType=none&"
-                f"pbk={pbk}&security=reality&sid={sid}&sni={sni}&type=tcp"
-            )
-            reality_nodes.append((pristine_url, host, port))
+            reality_nodes.append((base, host, port))
             seen_hosts.add(host)
     
     logger.info(f"🛡️ استخراج {len(hy2_nodes)} نود Hysteria2 و {len(reality_nodes)} نود Reality خالص.")
@@ -465,15 +460,15 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         conf_url, host, port = item
         try:
             res = await ping_single_config(conf_url, connect_timeout=1.2)
-            if res.is_online and 30 <= res.ping_ms <= 450:
-                return (conf_url, res.ping_ms)
+            if res.is_online and 30 <= res.ping_ms <= 420:
+                return (conf_url, host, res.ping_ms)
         except Exception:
             pass
         return None
     
     # تست گسترده نودهای Hysteria2 و Reality
-    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:120]]
-    tasks_reality = [check_alive(item) for item in reality_nodes[:180]]
+    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:150]]
+    tasks_reality = [check_alive(item) for item in reality_nodes[:250]]
     
     results_hy2 = await asyncio.gather(*tasks_hy2, return_exceptions=True)
     results_reality = await asyncio.gather(*tasks_reality, return_exceptions=True)
@@ -481,45 +476,43 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     alive_hy2 = [r for r in results_hy2 if isinstance(r, tuple) and r is not None]
     alive_reality = [r for r in results_reality if isinstance(r, tuple) and r is not None]
     
-    alive_hy2.sort(key=lambda x: x[1])
-    alive_reality.sort(key=lambda x: x[1])
+    alive_hy2.sort(key=lambda x: x[2])
+    alive_reality.sort(key=lambda x: x[2])
     
     logger.info(f"⚡ نودهای زنده تاییدشده: {len(alive_hy2)} Hysteria2 + {len(alive_reality)} Reality")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۶: انتخاب دقیق ۱۰ نود برتر اروپایی با پرچم و عنوان تمیز
+    # فاز ۶: انتخاب دقیق ۱۰ نود برتر با هاست‌های غیرتکراری و پرچم تمیز
     # ═══════════════════════════════════════════════════════════════
     EURO_COUNTRIES = ["DE", "NL", "FI", "TR", "FR", "GB", "SE", "AT", "CH", "PL"]
     
-    # اولویت: ۵ نود Hysteria2 پرسرعت + ۵ نود Reality طلایی اروپا
-    selected_hy2 = alive_hy2[:5]
-    needed_reality = target_count - len(selected_hy2)
-    selected_reality = alive_reality[:needed_reality]
+    selected_nodes = []
+    selected_hosts = set()
     
-    # اگر هایستریا یا ریالیتی کم بود، از دیگری جایگزین کن تا دقیقاً target_count شود
-    total_selected = len(selected_hy2) + len(selected_reality)
-    if total_selected < target_count:
-        rem = target_count - total_selected
-        if len(alive_hy2) > len(selected_hy2):
-            extra_hy2 = alive_hy2[len(selected_hy2):len(selected_hy2) + rem]
-            selected_hy2.extend(extra_hy2)
-            rem = target_count - (len(selected_hy2) + len(selected_reality))
-        if rem > 0 and len(alive_reality) > len(selected_reality):
-            extra_real = alive_reality[len(selected_reality):len(selected_reality) + rem]
-            selected_reality.extend(extra_real)
-            
-    combined = selected_hy2 + selected_reality
-    
-    # مرتب‌سازی بر اساس کمترین پینگ
-    combined.sort(key=lambda x: x[1])
-    combined = combined[:target_count]
+    # اولویت به سریع‌ترین نودهای زنده با هاست غیرتکراری
+    all_alive = sorted(alive_hy2 + alive_reality, key=lambda x: x[2])
+    for conf_base, host, pms in all_alive:
+        if host not in selected_hosts:
+            selected_hosts.add(host)
+            selected_nodes.append((conf_base, pms))
+            if len(selected_nodes) >= target_count:
+                break
+                
+    if len(selected_nodes) < target_count:
+        for conf_base, host, pms in all_alive:
+            if (conf_base, pms) not in selected_nodes:
+                selected_nodes.append((conf_base, pms))
+                if len(selected_nodes) >= target_count:
+                    break
     
     final_confs = []
-    for idx, (conf_base, pms) in enumerate(combined, 1):
+    for idx, (conf_base, pms) in enumerate(selected_nodes[:target_count], 1):
         cc = EURO_COUNTRIES[(idx - 1) % len(EURO_COUNTRIES)]
-        icon = "🚀" if ("hy2" in conf_base or "tuic" in conf_base) else "⚡"
+        icon = "🚀" if ("hy2" in conf_base or "hysteria" in conf_base or "tuic" in conf_base) else "⚡"
+        clean_c, flag, proto = transform_config(conf_base, tag=tag)
+        base_clean = clean_c.split("#")[0].strip()
         remark = f"VIP-{idx:02d} [{cc}] {icon} {tag}"
-        final_confs.append(f"{conf_base}#{remark}")
+        final_confs.append(f"{base_clean}#{remark}")
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")

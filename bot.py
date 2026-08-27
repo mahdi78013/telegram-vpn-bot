@@ -783,16 +783,15 @@ async def cb_get_wireguard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         escaped_uri = html.escape(wg_uri)
         
         caption = (
-            "🛡️ <b>فایل کانفیگ اختصاصی WireGuard / AmneziaWG (Warp VIP)</b>\n\n"
-            "⚡ <b>ویژگی‌ها:</b> دارای هدرهای مبهم‌سازی (Obfuscation) ضد فیلتر، حجم نامحدود، سرعت بالا\n"
+            "🛡️ <b>فایل کانفیگ رسمی WireGuard (Warp VIP)</b>\n\n"
+            "⚡ <b>ویژگی‌ها:</b> فرمت ۱۰۰٪ استاندارد و رسمی، اتصال از پورت‌های جایگزین ضد اختلال، حجم نامحدود\n"
             f"🔌 <b>اندپوینت اتصال تمیز:</b> <code>{endpoint}</code>\n"
             "-----------------\n\n"
             "👇 <b>لینک سریع (جهت کپی در Hiddify / v2rayNG):</b>\n\n"
             f"<pre><code class=\"language-copy\">{escaped_uri}</code></pre>\n\n"
             "-----------------\n"
-            "💡 <b>راهنمای اتصال بدون قطعی در ایران:</b>\n"
-            "1️⃣ <b>در برنامه Hiddify:</b> فایل بالا را باز کرده یا لینک را کپی و در هیدیفای پیست کنید.\n"
-            "2️⃣ <b>در برنامه AmneziaWG:</b> (نسخه ضد فیلتر وایرگارد) فایل بالا را مستقیماً Import کنید تا با دور زدن فیلترینگ UDP متصل شود.\n\n"
+            "💡 <b>روش اتصال در نرم‌افزار رسمی WireGuard:</b>\n"
+            "فایل ضمیمه‌شده <code>Munti_WireGuard.conf</code> را دانلود کرده و در نرم‌افزار رسمی <b>WireGuard</b> یا <b>Hiddify</b> وارد (Import) نمایید.\n\n"
             f"✅ {tag}"
         )
         

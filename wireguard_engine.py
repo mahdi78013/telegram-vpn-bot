@@ -16,12 +16,9 @@ WARP_CLEAN_ENDPOINTS = [
     "188.114.96.1:1082",
     "162.159.195.166:891",
     "188.114.97.3:854",
-    "162.159.192.5:890",
     "188.114.96.2:1194",
-    "162.159.193.5:1294",
-    "188.114.97.1:1387",
-    "162.159.192.1:2408",
-    "engage.cloudflareclient.com:2408"
+    "engage.cloudflareclient.com:894",
+    "engage.cloudflareclient.com:1074"
 ]
 
 async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:

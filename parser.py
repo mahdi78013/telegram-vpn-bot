@@ -78,10 +78,11 @@ def encode_base64_safe(s: str) -> str:
 
 def sanitize_url_parameters(url: str) -> str:
     """
-    اصلاح و استانداردسازی پارامترهای VLESS Reality و TLS جهت رفع خطای تایم‌اوت در v2rayNG/Xray:
-    1. تنظیم fp=chrome برای دور زدن اثرانگشت TLS
-    2. حذف headerType=http از Reality (ناسازگار با هسته Xray)
-    3. اصلاح یا افزودن flow=xtls-rprx-vision در صورت امکان
+    اصلاح و استانداردسازی پارامترهای VLESS Reality و TLS جهت رفع خطای تایم‌اوت در v2rayNG/Xray/Hiddify:
+    1. حذف پارامترهای تبلیغاتی و مخرب (مانند host=/?BIA_TELEGRAM...)
+    2. تنظیم fp=chrome برای دور زدن اثرانگشت TLS
+    3. حذف headerType نامعتبر در Reality
+    4. تنظیم flow=xtls-rprx-vision برای TCP Reality
     """
     try:
         if "?" not in url:
@@ -90,22 +91,38 @@ def sanitize_url_parameters(url: str) -> str:
         base_part, query_part = url.split("?", 1)
         params = urllib.parse.parse_qs(query_part, keep_blank_values=False)
         
-        is_reality = ("security" in params and "reality" in params["security"]) or ("pbk" in params)
+        is_reality = ("security" in params and "reality" in params["security"][0].lower()) or ("pbk" in params)
         
-        # اصلاح اثرانگشت TLS (Fingerprint)
-        if is_reality or "security" in params:
-            current_fp = params.get("fp", [""])[0].strip()
-            if not current_fp or current_fp in ("", "none", "null"):
+        # پاکسازی مقادیر اسپم از host و path و serviceName
+        if "host" in params:
+            h_val = params["host"][0]
+            if "BIA_TELEGRAM" in h_val or "@" in h_val or "?" in h_val or "/" in h_val:
+                del params["host"]
+                
+        if "path" in params:
+            p_val = params["path"][0]
+            if "BIA_TELEGRAM" in p_val or "@" in p_val:
+                del params["path"]
+
+        if "serviceName" in params:
+            sn_val = params["serviceName"][0]
+            if "Telegram" in sn_val or "@" in sn_val or "%40" in sn_val:
+                params["serviceName"] = ["grpc"]
+                
+        if is_reality:
+            # Reality روی TCP نباید headerType=http داشته باشد
+            net_type = params.get("type", ["tcp"])[0].lower()
+            if net_type == "tcp":
+                if "headerType" in params and params["headerType"][0].lower() in ("http", "none"):
+                    del params["headerType"]
+                if "flow" not in params:
+                    params["flow"] = ["xtls-rprx-vision"]
+            params["security"] = ["reality"]
+            params["encryption"] = ["none"]
+            if "fp" not in params or params["fp"][0].lower() in ("", "none", "null"):
                 params["fp"] = ["chrome"]
                 
-        # رفع تداخل headerType در Reality
-        if is_reality:
-            if "headerType" in params:
-                ht = params["headerType"][0].lower()
-                if ht == "http" or ht == "none":
-                    del params["headerType"]
-                    
-        # بازسازی query string استاندارد
+        # بازسازی query string تمیز
         flat_params = []
         for k, v_list in params.items():
             for val in v_list:

@@ -699,27 +699,29 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
     tag = await get_setting("tag", DEFAULT_TAG)
     
     try:
-        from codespace_vip import generate_and_publish_universal_sub
+        from codespace_vip import generate_and_publish_universal_sub, SUB_FILE_PATH
         direct_cdn_url = await generate_and_publish_universal_sub(tag=tag, target_count=10)
     except Exception:
-        direct_cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+        direct_cdn_url = "https://fastly.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+    
+    fastly_url = "https://fastly.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+    raw_gh_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
+    githack_url = "https://raw.githack.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
     
     msg = (
-        "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور تست‌شده با پینگ سبز):</b>\n\n"
-        "🔮 <b>شامل ۱۰ سرور گلچین‌شده با تضمین اتصال و پینگ پایدار:</b>\n"
-        "• 📱 بهینه‌شده برای ایرانسل (Reality + Vision)\n"
+        "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور گلچین با پینگ سبز):</b>\n\n"
+        "🔮 <b>شامل ۱۰ سرور تفکیک‌شده اروپایی (آلمان، هلند، فنلاند، فرانسه، سوئد و...):</b>\n"
+        "• 📱 بهینه‌شده برای ایرانسل (VLESS Reality)\n"
         "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
-        "• 📶 مخابرات، رایتل و وای‌فای خانگی\n"
-        "• ⚡ پروتکل‌های استریم و گیمینگ\n\n"
-        "👇 <b>لینک مستقیم ضد فیلتر (بدون نیاز به وی‌پی‌ان جهت اضافه کردن):</b>\n\n"
-        f"<code>{direct_cdn_url}</code>\n\n"
+        "• 📶 مخابرات، رایتل و وای‌فای خانگی\n\n"
+        "🔗 <b>لینک‌های مستقیم ضد فیلتر سابسکریپشن (یکی را در Hiddify وارد کنید):</b>\n\n"
+        f"1️⃣ <b>لینک سریع Fastly (پیشنهادی):</b>\n<code>{fastly_url}</code>\n\n"
+        f"2️⃣ <b>لینک کمکی GitHack:</b>\n<code>{githack_url}</code>\n\n"
+        f"3️⃣ <b>لینک مستقیم GitHub:</b>\n<code>{raw_gh_url}</code>\n\n"
         "-----------------\n"
-        "💡 <b>آموزش اتصال سریع در ۲ مرحله:</b>\n"
-        "1️⃣ روی کادر بالا بزنید تا لینک به صورت خودکار کپی شود.\n"
-        "2️⃣ در برنامه <b>Hiddify</b> یا <b>v2rayNG</b>، در بخش <b>Subscription (گروه‌های اشتراک)</b> این لینک را وارد کنید.\n\n"
-        "🌟 <b>ترفند اتصال پایدار:</b>\n"
-        "• در هیدیفای اتصال را روی <b>lowest</b> یا <b>balance</b> بگذارید تا خودکار به سریع‌ترین سرور وصل شوید.\n"
-        "• گزینه <b>Auto-Update (بروزرسانی خودکار)</b> را در برنامه روی ۱ ساعت بگذارید تا همیشه سرورهای نو داشته باشید.\n\n"
+        "💡 <b>نحوه اتصال در برنامه Hiddify:</b>\n"
+        "1. روی یکی از لینک‌های بالا بزنید تا کپی شود.\n"
+        "2. در هیدیفای روی <b>+ (افزودن پروفایل)</b> بزنید و <b>افزودن از کلیپ‌بورد</b> را انتخاب کنید.\n\n"
         f"✅ {tag}"
     )
     

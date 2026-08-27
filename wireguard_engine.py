@@ -87,12 +87,16 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
                             if addrs.get("v4"):
                                 v4_addr = addrs["v4"]
                             if addrs.get("v6"):
-                                v6_addr = addrs["v6"]
                             peers = cfg.get("peers", [])
                             if peers and peers[0].get("public_key"):
                                 peer_pub = peers[0]["public_key"]
         except Exception as api_err:
             logger.warning(f"Warp API fallback active: {api_err}")
+            
+        if v4_addr and not v4_addr.endswith("/32"):
+            v4_addr += "/32"
+        if v6_addr and not v6_addr.endswith("/128"):
+            v6_addr += "/128"
             
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         

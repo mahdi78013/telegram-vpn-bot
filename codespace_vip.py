@@ -9,6 +9,8 @@ import subprocess
 import logging
 import threading
 import re
+import asyncio
+import aiohttp
 from typing import Dict, Any
 
 logger = logging.getLogger("CodespaceVIP")
@@ -314,24 +316,32 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         return unique
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۳: دانلود غیرهمزمان از منابع متنوع (aiohttp)
+    # فاز ۳: دانلود غیرهمزمان از منابع متنوع و اختصاصی ایران
     # ═══════════════════════════════════════════════════════════════
-    # منابع برتر: ترکیب Hysteria 2، TUIC و VLESS Reality اروپایی
     sources = [
-        # Hysteria 2 & TUIC (پروتکل‌های پرسرعت بر پایه UDP ضد پکت‌لاس)
-        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
-        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2",
-        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/tuic",
-        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/hysteria2/base64",
-        # MahsaNet (مخصوص همراه اول و ایرانسل)
+        # MahsaNet Dedicated Streams (تست‌شده به صورت مستقیم روی همراه اول و ایرانسل)
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-        # VLESS Reality طلایی
+        "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/sub_1.txt",
+        
+        # SoroushMirzaei Operator-split Hysteria2 & TUIC & Reality
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/tuic",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/reality",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/operators/mci",
+        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/operators/mtn",
+        
+        # Epodonios Splitted Streams
+        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
+        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/tuic.txt",
         "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
+        
+        # Yebekhe & Barry-Far Streams
+        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/hysteria2/base64",
+        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/vless/base64",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub2.txt",
         "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-        "https://raw.githubusercontent.com/ts-sf/Fly/main/v2",
-        "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray",
-        "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt",
     ]
     
     SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://")
@@ -342,7 +352,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         """دانلود غیرهمزمان هر منبع"""
         fetched = []
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                 if resp.status != 200:
                     return fetched
                 raw = await resp.text(errors='ignore')
@@ -383,9 +393,14 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     logger.info(f"📥 {len(candidates)} کانفیگ خام از {len(sources)} منبع جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: تفکیک و استخراج لوکیشن‌های طلایی (Hysteria2 + Reality)
+    # فاز ۴: تفکیک و فیلتر هوشمند ضد اختلال ایران (Hysteria2 + Reality)
     # ═══════════════════════════════════════════════════════════════
-    BLOCKED_SNIS = ("railway.app", "workers.dev", "pages.dev", "cloudflare.com", "t.me", "telegram.org", "discord.com")
+    BLOCKED_SNIS = (
+        ".ru", "yandex", "ya.ru", "vk.com", "mail.ru", "foodnetwork.com",
+        "railway.app", "workers.dev", "pages.dev", "cloudflare.com",
+        "t.me", "telegram.org", "discord.com", "rkitman.ru", "melbicom.net",
+        "xpkg.ru", "pinecloud.net", "tunnelx.space", "convert-flow.net"
+    )
     
     hy2_nodes = []
     reality_nodes = []
@@ -444,21 +459,21 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     logger.info(f"🛡️ استخراج {len(hy2_nodes)} نود Hysteria2 و {len(reality_nodes)} نود Reality خالص.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۵: تست موازی پینگ و سنجش تاخیر پاسخ
+    # فاز ۵: تست عمیق موازی پینگ تا رسیدن به ۱۰ سرور قطعی و زنده
     # ═══════════════════════════════════════════════════════════════
     async def check_alive(item):
         conf_url, host, port = item
         try:
-            res = await ping_single_config(conf_url, connect_timeout=1.0)
-            if res.is_online and 40 <= res.ping_ms <= 550:
+            res = await ping_single_config(conf_url, connect_timeout=1.2)
+            if res.is_online and 30 <= res.ping_ms <= 450:
                 return (conf_url, res.ping_ms)
         except Exception:
             pass
         return None
     
-    # تست موازی نودهای Hysteria2 و Reality
-    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:60]]
-    tasks_reality = [check_alive(item) for item in reality_nodes[:80]]
+    # تست گسترده نودهای Hysteria2 و Reality
+    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:120]]
+    tasks_reality = [check_alive(item) for item in reality_nodes[:180]]
     
     results_hy2 = await asyncio.gather(*tasks_hy2, return_exceptions=True)
     results_reality = await asyncio.gather(*tasks_reality, return_exceptions=True)
@@ -469,23 +484,35 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     alive_hy2.sort(key=lambda x: x[1])
     alive_reality.sort(key=lambda x: x[1])
     
-    logger.info(f"⚡ نودهای زنده: {len(alive_hy2)} Hysteria2 + {len(alive_reality)} Reality")
+    logger.info(f"⚡ نودهای زنده تاییدشده: {len(alive_hy2)} Hysteria2 + {len(alive_reality)} Reality")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۶: ترکیب ۵ نود Hysteria2 پرسرعت + ۵ نود Reality طلایی اروپا
+    # فاز ۶: انتخاب دقیق ۱۰ نود برتر اروپایی با پرچم و عنوان تمیز
     # ═══════════════════════════════════════════════════════════════
     EURO_COUNTRIES = ["DE", "NL", "FI", "TR", "FR", "GB", "SE", "AT", "CH", "PL"]
     
+    # اولویت: ۵ نود Hysteria2 پرسرعت + ۵ نود Reality طلایی اروپا
     selected_hy2 = alive_hy2[:5]
-    selected_reality = alive_reality[:(target_count - len(selected_hy2))]
+    needed_reality = target_count - len(selected_hy2)
+    selected_reality = alive_reality[:needed_reality]
     
-    # اگر هایستریا کمتر از ۵ تا بود، با ریالیتی اروپا پر کن
-    if len(selected_hy2) + len(selected_reality) < target_count:
-        remaining = target_count - (len(selected_hy2) + len(selected_reality))
-        extra_reality = alive_reality[len(selected_reality):len(selected_reality) + remaining]
-        selected_reality.extend(extra_reality)
-        
+    # اگر هایستریا یا ریالیتی کم بود، از دیگری جایگزین کن تا دقیقاً target_count شود
+    total_selected = len(selected_hy2) + len(selected_reality)
+    if total_selected < target_count:
+        rem = target_count - total_selected
+        if len(alive_hy2) > len(selected_hy2):
+            extra_hy2 = alive_hy2[len(selected_hy2):len(selected_hy2) + rem]
+            selected_hy2.extend(extra_hy2)
+            rem = target_count - (len(selected_hy2) + len(selected_reality))
+        if rem > 0 and len(alive_reality) > len(selected_reality):
+            extra_real = alive_reality[len(selected_reality):len(selected_reality) + rem]
+            selected_reality.extend(extra_real)
+            
     combined = selected_hy2 + selected_reality
+    
+    # مرتب‌سازی بر اساس کمترین پینگ
+    combined.sort(key=lambda x: x[1])
+    combined = combined[:target_count]
     
     final_confs = []
     for idx, (conf_base, pms) in enumerate(combined, 1):
@@ -594,8 +621,8 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         except Exception as ex:
             logger.warning(f"Error publishing sub to GitHub: {ex}")
     
-    avg_ping = int(sum(p for _, p in selected_nodes) / max(len(selected_nodes), 1))
-    logger.info(f"📊 میانگین پینگ {len(selected_nodes)} سرور منتخب: {avg_ping}ms")
+    avg_ping = int(sum(p for _, p in combined) / max(len(combined), 1))
+    logger.info(f"📊 میانگین پینگ {len(combined)} سرور منتخب: {avg_ping}ms")
     
     return cdn_url
 

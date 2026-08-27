@@ -11,22 +11,26 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 logger = logging.getLogger("WireGuardEngine")
 
 WARP_CLEAN_ENDPOINTS = [
+    "188.114.97.2:894",
+    "162.159.193.10:1074",
+    "188.114.96.1:1082",
+    "162.159.195.166:891",
+    "188.114.97.3:854",
+    "162.159.192.5:890",
+    "188.114.96.2:1194",
+    "162.159.193.5:1294",
+    "188.114.97.1:1387",
     "162.159.192.1:2408",
-    "162.159.193.10:2408",
-    "162.159.195.5:2408",
-    "188.114.96.1:2408",
-    "188.114.97.2:2408",
-    "162.159.192.5:2408",
     "engage.cloudflareclient.com:2408"
 ]
 
 async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
     """
-    تولید آنی و کاملاً اختصاصی اکانت WireGuard (Cloudflare Warp) برای کاربر:
+    تولید آنی و کاملاً استاندارد اکانت WireGuard سازگار با نرم‌افزار رسمی WireGuard:
     - تولید کلیدهای رمزنگاری Curve25519
     - ثبت در سرورهای ابری Cloudflare
-    - اختصاص IPv4 و IPv6 یکتا
-    - اتصال به آیپی تمیز (Clean IP) جهت حداکثر سرعت در ایران
+    - پورت‌های ضد اختلال (894, 1074, 1082, 1194)
+    - فرمت استاندارد بدون خطای سینتکس
     """
     try:
         # ۱. تولید جفت کلید رمزنگاری X25519 به روش استاندارد
@@ -76,7 +80,6 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
                 ) as resp:
                     if resp.status in (200, 201):
                         res_json = await resp.json()
-                        # Cloudflare API returns fields at root or inside result
                         root = res_json.get("result", res_json)
                         cfg = root.get("config", {})
                         if cfg:
@@ -93,29 +96,20 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         
-        # ۳. ساخت فایل متنی استاندارد ضد فیلتر AmneziaWG / WireGuard (.conf)
+        # ۳. ساخت فایل متنی استاندارد و رسمی WireGuard (.conf)
         conf_text = (
             f"[Interface]\n"
             f"PrivateKey = {priv_b64}\n"
             f"Address = {v4_addr}, {v6_addr}\n"
             f"DNS = 1.1.1.1, 1.0.0.1\n"
-            f"MTU = 1280\n"
-            f"Jc = 4\n"
-            f"Jmin = 40\n"
-            f"Jmax = 70\n"
-            f"S1 = 0\n"
-            f"S2 = 0\n"
-            f"H1 = 1\n"
-            f"H2 = 2\n"
-            f"H3 = 3\n"
-            f"H4 = 4\n\n"
+            f"MTU = 1280\n\n"
             f"[Peer]\n"
             f"PublicKey = {peer_pub}\n"
             f"AllowedIPs = 0.0.0.0/0, ::/0\n"
             f"Endpoint = {endpoint}\n"
         )
         
-        # ۴. ساخت لینک وایرگارد برای نرم‌افزارهای کلاینت (Hiddify / v2rayNG / MahsaNG)
+        # ۴. ساخت لینک وایرگارد
         host_part, port_part = endpoint.split(":")
         wg_uri = (
             f"wireguard://{priv_b64}@{host_part}:{port_part}"
@@ -136,7 +130,6 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
         
     except Exception as e:
         logger.error(f"Error generating WireGuard Warp config: {e}")
-        # تولید مطمئن در هر شرایطی با پارامترهای ضد فیلتر AmneziaWG
         rand_priv = base64.b64encode(os.urandom(32)).decode("utf-8")
         endpoint = random.choice(WARP_CLEAN_ENDPOINTS)
         conf_text = (
@@ -144,16 +137,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
             f"PrivateKey = {rand_priv}\n"
             f"Address = 172.16.0.2/32, 2606:4700:110:8735:6b25:958b:b03b:5757/128\n"
             f"DNS = 1.1.1.1, 1.0.0.1\n"
-            f"MTU = 1280\n"
-            f"Jc = 4\n"
-            f"Jmin = 40\n"
-            f"Jmax = 70\n"
-            f"S1 = 0\n"
-            f"S2 = 0\n"
-            f"H1 = 1\n"
-            f"H2 = 2\n"
-            f"H3 = 3\n"
-            f"H4 = 4\n\n"
+            f"MTU = 1280\n\n"
             f"[Peer]\n"
             f"PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\n"
             f"AllowedIPs = 0.0.0.0/0, ::/0\n"

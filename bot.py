@@ -698,7 +698,12 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
     
     tag = await get_setting("tag", DEFAULT_TAG)
     
-    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
+    try:
+        from codespace_vip import generate_and_publish_universal_sub
+        sub_url = await generate_and_publish_universal_sub(tag=tag, target_count=10)
+    except Exception as ex:
+        logger.error(f"Error generating sub: {ex}")
+        sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
     
     msg = (
         "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور گلچین با پینگ سبز):</b>\n\n"

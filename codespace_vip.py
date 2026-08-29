@@ -281,61 +281,31 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         return False
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۲: حذف تکراری‌ها بر اساس IP:Port
+    # فاز ۳: دانلود غیرهمزمان از تمام منابع فعال و پرسرعت
     # ═══════════════════════════════════════════════════════════════
-    def extract_server_key(config: str) -> str:
-        """استخراج host:port یکتا از هر کانفیگ برای تشخیص تکراری"""
-        conf_lower = config.lower()
-        if conf_lower.startswith("vmess://"):
-            try:
-                b64_part = config[8:]
-                if "#" in b64_part:
-                    b64_part = b64_part.split("#")[0]
-                decoded = decode_base64_safe(b64_part)
-                obj = json.loads(decoded)
-                return f"{obj.get('add', '')}:{obj.get('port', '')}"
-            except Exception:
-                return config[:60]
-        else:
-            # URL-style: vless://uuid@host:port?...
-            m = re.search(r'@([^:/?#]+):(\d+)', config)
-            if m:
-                return f"{m.group(1)}:{m.group(2)}"
-            return config[:60]
-    
-    def deduplicate_by_server(configs: list) -> list:
-        """حذف تکراری‌ها بر اساس IP:Port — فقط اولین نمونه نگه داشته می‌شود"""
-        seen = set()
-        unique = []
-        for c in configs:
-            key = extract_server_key(c)
-            if key not in seen:
-                seen.add(key)
-                unique.append(c)
-        return unique
-    
-    # ═══════════════════════════════════════════════════════════════
-    # فاز ۳: دانلود غیرهمزمان از منابع متنوع (aiohttp)
-    # ═══════════════════════════════════════════════════════════════
-    # منابع برتر: ترکیب Hysteria 2، TUIC و VLESS Reality اروپایی
     sources = [
-        # Hysteria 2 & TUIC (پروتکل‌های پرسرعت بر پایه UDP ضد پکت‌لاس)
-        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
-        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2",
-        "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/tuic",
-        "https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/hysteria2/base64",
         # MahsaNet (مخصوص همراه اول و ایرانسل)
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-        # VLESS Reality طلایی
+        # Barry-Far
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub2.txt",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub3.txt",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Splitted-By-Protocol/vless.txt",
+        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt",
+        # Epodonios
         "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
+        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
+        # Yebekhe TVC
+        "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/vless",
+        "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/hysteria2",
+        # Other Active Repos
         "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-        "https://raw.githubusercontent.com/ts-sf/Fly/main/v2",
-        "https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray",
-        "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/sub/sub_merge.txt",
+        "https://raw.githubusercontent.com/Surfboardv2ray/v2ray-worker-sub/master/sub/base64",
+        "https://raw.githubusercontent.com/LalatinaHub/Mineral/master/result/nodes",
     ]
     
-    SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://")
+    SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://", "ss://")
     
     candidates = []
     
@@ -343,7 +313,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         """دانلود غیرهمزمان هر منبع"""
         fetched = []
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                 if resp.status != 200:
                     return fetched
                 raw = await resp.text(errors='ignore')
@@ -384,116 +354,104 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     logger.info(f"📥 {len(candidates)} کانفیگ خام از {len(sources)} منبع جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: تفکیک و استخراج لوکیشن‌های طلایی (Hysteria2 + Reality)
+    # فاز ۴: غربالگری اولیه و حذف نودهای مسدود
     # ═══════════════════════════════════════════════════════════════
-    BLOCKED_SNIS = ("railway.app", "workers.dev", "pages.dev", "cloudflare.com", "t.me", "telegram.org", "discord.com")
+    BLOCKED_SNIS = (
+        ".ru", "yandex", "ya.ru", "vk.com", "mail.ru", "foodnetwork.com",
+        "railway.app", "workers.dev", "pages.dev", "cloudflare.com",
+        "t.me", "telegram.org", "discord.com"
+    )
     
-    hy2_nodes = []
-    reality_nodes = []
-    seen_hosts = set()
+    clean_pool = []
+    seen_bases = set()
     
-    for c in candidates:
-        base = c.split("#")[0] if "#" in c else c
+    def extract_host(conf_str: str) -> str:
+        m = re.search(r'@([^:/?#]+):(\d+)', conf_str)
+        if m:
+            return m.group(1).lower()
+        return ""
         
-        # ۱. کانفیگ‌های Hysteria 2 و TUIC (ضد پکت‌لاس و سرعت فوق‌العاده)
-        if base.startswith("hy2://") or base.startswith("hysteria2://") or base.startswith("tuic://"):
-            m = re.search(r'://(?:[^@]+@)?([^:/?#]+):(\d+)', base)
-            if m:
-                host, port = m.group(1), int(m.group(2))
-                if host not in seen_hosts:
-                    hy2_nodes.append((base, host, port))
-                    seen_hosts.add(host)
+    for c in candidates:
+        base = c.split("#")[0].strip()
+        if not base or base in seen_bases:
             continue
-            
-        # ۲. کانفیگ‌های VLESS Reality خالص با SNIهای تمیز
-        if base.startswith("vless://"):
-            m = re.search(r'^vless://([^@]+)@([^:/?#]+):(\d+)\?(.*)$', base)
-            if not m:
-                continue
-                
-            uuid, host, port, query_str = m.group(1), m.group(2), int(m.group(3)), m.group(4)
-            
-            if host in seen_hosts:
-                continue
-                
-            is_reality = "security=reality" in query_str or "pbk=" in query_str
-            if not is_reality:
-                continue
-                
-            sni_match = re.search(r'sni=([^&#]+)', query_str)
-            sni = sni_match.group(1) if sni_match else host
-            
-            if any(b in sni.lower() for b in BLOCKED_SNIS):
-                continue
-                
-            pbk_match = re.search(r'pbk=([^&#]+)', query_str)
-            if not pbk_match:
-                continue
-            pbk = pbk_match.group(1)
-            
-            sid_match = re.search(r'sid=([^&#]+)', query_str)
-            sid = sid_match.group(1) if sid_match else ""
-            
-            pristine_url = (
-                f"vless://{uuid}@{host}:{port}?"
-                f"encryption=none&flow=xtls-rprx-vision&fp=chrome&headerType=none&"
-                f"pbk={pbk}&security=reality&sid={sid}&sni={sni}&type=tcp"
-            )
-            reality_nodes.append((pristine_url, host, port))
-            seen_hosts.add(host)
-    
-    logger.info(f"🛡️ استخراج {len(hy2_nodes)} نود Hysteria2 و {len(reality_nodes)} نود Reality خالص.")
+        c_lower = base.lower()
+        if "security=none" in c_lower or "security=&" in c_lower:
+            continue
+        if any(bad in c_lower for bad in BLOCKED_SNIS):
+            continue
+        if "bia_telegram" in c_lower:
+            continue
+        seen_bases.add(base)
+        clean_pool.append(base)
+        
+    logger.info(f"🔍 استخر کانفیگ‌های پاکسازی‌شده: {len(clean_pool)} نود")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۵: تست موازی پینگ و سنجش تاخیر پاسخ
+    # فاز ۵: تست عمیق موازی پینگ و سنجش تاخیر تا تضمین ۱۰ سرور زنده
     # ═══════════════════════════════════════════════════════════════
-    async def check_alive(item):
-        conf_url, host, port = item
-        try:
-            res = await ping_single_config(conf_url, connect_timeout=1.0)
-            if res.is_online and 40 <= res.ping_ms <= 550:
-                return (conf_url, res.ping_ms)
-        except Exception:
-            pass
-        return None
+    sem = asyncio.Semaphore(60)
+    passed_nodes = []
     
-    # تست موازی نودهای Hysteria2 و Reality
-    tasks_hy2 = [check_alive(item) for item in hy2_nodes[:60]]
-    tasks_reality = [check_alive(item) for item in reality_nodes[:80]]
+    async def probe(conf_base):
+        async with sem:
+            try:
+                res = await ping_single_config(conf_base, connect_timeout=1.2)
+                if res.is_online and 25 <= res.ping_ms <= 420:
+                    host = extract_host(conf_base)
+                    return (conf_base, host, res.ping_ms)
+            except Exception:
+                pass
+            return None
+            
+    # تست دسته‌ای تا رسیدن به تعداد کافی نود زنده
+    batch_size = 350
+    for i in range(0, min(len(clean_pool), 1400), batch_size):
+        chunk = clean_pool[i:i + batch_size]
+        results = await asyncio.gather(*[probe(c) for c in chunk], return_exceptions=True)
+        for r in results:
+            if isinstance(r, tuple) and r is not None:
+                passed_nodes.append(r)
+        if len(passed_nodes) >= target_count * 3:
+            break
+            
+    logger.info(f"⚡ تعداد نودهای زنده و پاسخگو: {len(passed_nodes)}")
     
-    results_hy2 = await asyncio.gather(*tasks_hy2, return_exceptions=True)
-    results_reality = await asyncio.gather(*tasks_reality, return_exceptions=True)
+    # مرتب‌سازی بر اساس کمترین پینگ
+    passed_nodes.sort(key=lambda x: x[2])
     
-    alive_hy2 = [r for r in results_hy2 if isinstance(r, tuple) and r is not None]
-    alive_reality = [r for r in results_reality if isinstance(r, tuple) and r is not None]
-    
-    alive_hy2.sort(key=lambda x: x[1])
-    alive_reality.sort(key=lambda x: x[1])
-    
-    logger.info(f"⚡ نودهای زنده: {len(alive_hy2)} Hysteria2 + {len(alive_reality)} Reality")
+    # انتخاب ۱۰ نود با هاست‌های کاملاً غیرتکراری
+    selected = []
+    used_hosts = set()
+    for conf_base, host, pms in passed_nodes:
+        if host and host not in used_hosts:
+            used_hosts.add(host)
+            selected.append((conf_base, pms))
+            if len(selected) >= target_count:
+                break
+                
+    if len(selected) < target_count:
+        for conf_base, host, pms in passed_nodes:
+            if (conf_base, pms) not in selected:
+                selected.append((conf_base, pms))
+                if len(selected) >= target_count:
+                    break
+                    
+    combined = selected
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۶: ترکیب ۵ نود Hysteria2 پرسرعت + ۵ نود Reality طلایی اروپا
+    # فاز ۶: فرمت‌بندی نهایی با پرچم و عنوان تمیز
     # ═══════════════════════════════════════════════════════════════
     EURO_COUNTRIES = ["DE", "NL", "FI", "TR", "FR", "GB", "SE", "AT", "CH", "PL"]
     
-    selected_hy2 = alive_hy2[:5]
-    selected_reality = alive_reality[:(target_count - len(selected_hy2))]
-    
-    # اگر هایستریا کمتر از ۵ تا بود، با ریالیتی اروپا پر کن
-    if len(selected_hy2) + len(selected_reality) < target_count:
-        remaining = target_count - (len(selected_hy2) + len(selected_reality))
-        extra_reality = alive_reality[len(selected_reality):len(selected_reality) + remaining]
-        selected_reality.extend(extra_reality)
-        
-    combined = selected_hy2 + selected_reality
-    
     final_confs = []
-    for idx, (conf_base, pms) in enumerate(combined, 1):
+    for idx, (conf_base, pms) in enumerate(combined[:target_count], 1):
         cc = EURO_COUNTRIES[(idx - 1) % len(EURO_COUNTRIES)]
-        icon = "🚀" if ("hy2" in conf_base or "tuic" in conf_base) else "⚡"
-        remark = f"VIP-{idx:02d} [{cc}] {icon} {tag}"
-        final_confs.append(f"{conf_base}#{remark}")
+        from parser import transform_config
+        clean_c, flag, proto = transform_config(conf_base, tag=tag)
+        base_clean = clean_c.split("#")[0].strip()
+        remark = f"VIP-{idx:02d} [{cc}] {tag}"
+        final_confs.append(f"{base_clean}#{remark}")
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")

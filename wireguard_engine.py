@@ -84,6 +84,7 @@ async def generate_warp_wireguard_config(tag: str = "@Muntivpn") -> dict:
                             if addrs.get("v4"):
                                 v4_addr = addrs["v4"]
                             if addrs.get("v6"):
+                                v6_addr = addrs["v6"]
                             peers = cfg.get("peers", [])
                             if peers and peers[0].get("public_key"):
                                 peer_pub = peers[0]["public_key"]

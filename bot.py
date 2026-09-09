@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import logging
@@ -81,10 +82,18 @@ logger = logging.getLogger("AutoVpnBot")
     STATE_WAIT_DEST_DELAY,
 ) = range(5)
 
-def is_admin(user_id: int) -> bool:
-    """بررسی ادمین بودن کاربر (شامل آیدی‌های اصلی و جدید)"""
-    from config import ADMIN_IDS, ADMIN_ID
-    return user_id == ADMIN_ID or user_id in ADMIN_IDS or str(user_id) in ["748538264", "6615827337"]
+def is_admin(user_id: Any) -> bool:
+    """بررسی ادمین بودن کاربر (شامل آیدی‌های اصلی و جدید به صورت ضدخطا)"""
+    if not user_id:
+        return False
+    try:
+        from config import ADMIN_IDS, ADMIN_ID
+        admin_set = {str(ADMIN_ID).strip(), "748538264", "6615827337"}
+        for a in ADMIN_IDS:
+            admin_set.add(str(a).strip())
+        return str(user_id).strip() in admin_set
+    except Exception:
+        return str(user_id).strip() in {"748538264", "6615827337"}
 
 def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "vip") -> InlineKeyboardMarkup:
     """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""
@@ -167,18 +176,18 @@ async def get_main_menu_text() -> str:
     
     auto_send = "فعال 🟢" if settings.get("auto_send", "0") == "1" else "غیرفعال 🔴"
     batch_size = settings.get("batch_size", "3")
-    source_mode = settings.get("source_mode", "mahsa")
+    source_mode = settings.get("source_mode", "vip")
     source_title = "🚀 نت ملی VIP (۲۴ ساعته ابری)" if source_mode == "vip" else "🌐 مخازن آنلاین (مهسا نت)"
     
     try:
         raw_min = settings.get("min_delay", str(DEFAULT_MIN_DELAY))
         min_d_sec = int(float(raw_min))
         if min_d_sec < 60:
-            delay_str = f"هر `{min_d_sec}` ثانیه یکبار"
+            delay_str = f"هر <code>{min_d_sec}</code> ثانیه یکبار"
         else:
-            delay_str = f"هر `{min_d_sec // 60}` دقیقه یکبار"
+            delay_str = f"هر <code>{min_d_sec // 60}</code> دقیقه یکبار"
     except Exception:
-        delay_str = "هر `1` دقیقه یکبار"
+        delay_str = "هر <code>1</code> دقیقه یکبار"
         
     tag = settings.get("tag", DEFAULT_TAG)
     
@@ -186,20 +195,20 @@ async def get_main_menu_text() -> str:
     next_post_str = f"{countdown} ثانیه دیگر" if countdown is not None else "در حال تعلیق"
     
     text = (
-        "👑 **پنل مدیریت ربات خودکار ارسال VPN**\n\n"
-        f"⚡ **وضعیت ارسال خودکار:** {auto_send}\n"
-        f"📡 **منبع ارسال کانال:** {source_title}\n"
-        f"📦 **تعداد سرور در هر پست:** `{batch_size}` عدد (دسته‌ای)\n"
-        f"📢 **مقاصد فعال (کانال/گروه):** `{len(active_dests)}` مورد از `{len(destinations)}`\n"
-        f"⏱️ **سرعت ارسال:** {delay_str}\n"
-        f"🏷️ **تگ سرورها:** `{tag}`\n"
-        f"⏳ **ارسال بعدی:** `{next_post_str}`\n\n"
-        "📊 **وضعیت سلامت سرورها:**\n"
-        f"• کل کانفیگ‌های موجود: `{stats['total_configs']}` عدد\n"
-        f"• سرورهای متصل و آنلاین: 🟢 `{stats['online_configs']}` عدد\n"
-        f"• سرورهای قطع / فیلتر: 🔴 `{stats['offline_configs']}` عدد\n"
-        f"• در صف تست اولیه: ⏳ `{stats['untested_configs']}` عدد\n\n"
-        f"🔄 **آمار دور ارسال:** دور `{stats['current_cycle']}` | ارسال تاریخچه: `{stats['total_lifetime_sent']}` پست\n\n"
+        "👑 <b>پنل مدیریت ربات خودکار ارسال VPN</b>\n\n"
+        f"⚡ <b>وضعیت ارسال خودکار:</b> {auto_send}\n"
+        f"📡 <b>منبع ارسال کانال:</b> {source_title}\n"
+        f"📦 <b>تعداد سرور در هر پست:</b> <code>{batch_size}</code> عدد (دسته‌ای)\n"
+        f"📢 <b>مقاصد فعال (کانال/گروه):</b> <code>{len(active_dests)}</code> مورد از <code>{len(destinations)}</code>\n"
+        f"⏱️ <b>سرعت ارسال:</b> {delay_str}\n"
+        f"🏷️ <b>تگ سرورها:</b> <code>{html.escape(tag)}</code>\n"
+        f"⏳ <b>ارسال بعدی:</b> <code>{next_post_str}</code>\n\n"
+        "📊 <b>وضعیت سلامت سرورها:</b>\n"
+        f"• کل کانفیگ‌های موجود: <code>{stats.get('total_configs', 0)}</code> عدد\n"
+        f"• سرورهای متصل و آنلاین: 🟢 <code>{stats.get('online_configs', 0)}</code> عدد\n"
+        f"• سرورهای قطع / فیلتر: 🔴 <code>{stats.get('offline_configs', 0)}</code> عدد\n"
+        f"• در صف تست اولیه: ⏳ <code>{stats.get('untested_configs', 0)}</code> عدد\n\n"
+        f"🔄 <b>آمار دور ارسال:</b> دور <code>{stats.get('current_cycle', 1)}</code> | ارسال تاریخچه: <code>{stats.get('total_lifetime_sent', 0)}</code> پست\n\n"
         "👇 از گزینه‌های زیر جهت مدیریت استفاده کنید:"
     )
     return text
@@ -207,33 +216,49 @@ async def get_main_menu_text() -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """هندلر دستور /start یا /admin"""
     user = update.effective_user
-    if not is_admin(user.id):
-        user_text = (
-            f"سلام {user.first_name} عزیز! 🌹\n\n"
-            "🔮 به سامانه هوشمند **Munti VPN** خوش آمدید.\n"
-            "⚡ سرورها و پروکسی‌های ما توسط **هوش مصنوعی** پایش می‌شوند و پینگ سبز دارند.\n\n"
-            "👇 **لطفاً اپراتور سیم‌کارت خود را انتخاب کنید:**"
-        )
-
-        await update.message.reply_text(
-            text=user_text,
-            reply_markup=build_user_menu_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
+    if not user or not update.message:
         return
         
-    settings = await get_all_settings()
-    auto_send_on = settings.get("auto_send", "0") == "1"
-    batch_size = settings.get("batch_size", "3")
-    
-    menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(auto_send_on, batch_size)
-    
-    await update.message.reply_text(
-        text=menu_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        if not is_admin(user.id):
+            first_name = html.escape(user.first_name or "کاربر")
+            user_text = (
+                f"سلام {first_name} عزیز! 🌹\n\n"
+                "🔮 به سامانه هوشمند <b>Munti VPN</b> خوش آمدید.\n"
+                "⚡ سرورها و پروکسی‌های ما توسط <b>هوش مصنوعی</b> پایش می‌شوند و پینگ سبز دارند.\n\n"
+                "👇 <b>لطفاً اپراتور سیم‌کارت خود را انتخاب کنید:</b>"
+            )
+
+            await update.message.reply_text(
+                text=user_text,
+                reply_markup=build_user_menu_keyboard(),
+                parse_mode=ParseMode.HTML
+            )
+            return
+            
+        settings = await get_all_settings()
+        auto_send_on = settings.get("auto_send", "0") == "1"
+        batch_size = settings.get("batch_size", "3")
+        source_mode = settings.get("source_mode", "vip")
+        
+        menu_text = await get_main_menu_text()
+        reply_markup = build_main_keyboard(auto_send_on, batch_size, source_mode)
+        
+        await update.message.reply_text(
+            text=menu_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"Error in cmd_start: {e}", exc_info=True)
+        try:
+            await update.message.reply_text(
+                "👑 <b>پنل مدیریت ربات Munti VPN</b>",
+                reply_markup=build_main_keyboard(True, "3", "vip"),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
 
 async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به منوی اصلی"""
@@ -252,10 +277,17 @@ async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             text=menu_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     except Exception:
-        pass
+        try:
+            await query.message.reply_text(
+                text=menu_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            pass
 
 async def cb_toggle_auto_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """روشن یا خاموش کردن ارسال خودکار"""
@@ -283,7 +315,7 @@ async def cb_toggle_auto_send(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             text=menu_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     except Exception:
         pass
@@ -310,7 +342,7 @@ async def cb_cycle_batch_size(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             text=menu_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     except Exception:
         pass
@@ -323,8 +355,8 @@ async def cb_toggle_source_mode(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer("⛔ فقط مخصوص مدیریت است.", show_alert=True)
         return
         
-    current = await get_setting("source_mode", "mahsa")
-    new_mode = "vip" if current == "mahsa" else "mahsa"
+    current = await get_setting("source_mode", "vip")
+    new_mode = "mahsa" if current == "vip" else "vip"
     await set_setting("source_mode", new_mode)
     
     label = "🚀 نت ملی VIP" if new_mode == "vip" else "🌐 مخازن آنلاین مهسا نت"
@@ -340,7 +372,7 @@ async def cb_toggle_source_mode(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(
             text=menu_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     except Exception:
         pass
@@ -350,16 +382,20 @@ async def cb_ping_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("در حال تست پینگ و سلامت سرورها...")
     
-    await query.edit_message_text(
-        "⏳ **در حال تست زنده پینگ و سلامت سرورها با پروتکل TCP/TLS...**\nلطفاً چند لحظه صبر کنید...",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    
+    try:
+        await query.edit_message_text(
+            "⏳ <b>در حال تست زنده پینگ و سلامت سرورها با پروتکل TCP/TLS...</b>\nلطفاً چند لحظه صبر کنید...",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+        
     configs = await get_configs_for_health_check(limit=500)
     if not configs:
         await query.edit_message_text(
             "⚠️ هیچ سروری در دیتابیس موجود نیست.",
-            reply_markup=build_main_keyboard(await get_setting("auto_send", "0") == "1")
+            reply_markup=build_main_keyboard(await get_setting("auto_send", "0") == "1"),
+            parse_mode=ParseMode.HTML
         )
         return
         
@@ -371,12 +407,12 @@ async def cb_ping_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     avg_ping = int(sum(online_pings) / len(online_pings)) if online_pings else 0
     
     result_text = (
-        "🔍 **گزارش تست پینگ و سلامت سرورها:**\n\n"
-        f"📊 **کل سرورهای موجود:** `{stats['total_configs']}` عدد\n"
-        f"🟢 **سرورهای سالم و آنلاین:** `{stats['online_configs']}` عدد\n"
-        f"🔴 **سرورهای قطع یا فیلتر:** `{stats['offline_configs']}` عدد\n"
-        f"⚡ **میانگین پینگ سرورهای متصل:** `{avg_ping}ms`\n\n"
-        "✨ *پست‌های ارسالی تنها از سرورهای باکیفیت و متصل تغذیه می‌شوند.*"
+        "🔍 <b>گزارش تست پینگ و سلامت سرورها:</b>\n\n"
+        f"📊 <b>کل سرورهای موجود:</b> <code>{stats.get('total_configs', 0)}</code> عدد\n"
+        f"🟢 <b>سرورهای سالم و آنلاین:</b> <code>{stats.get('online_configs', 0)}</code> عدد\n"
+        f"🔴 <b>سرورهای قطع یا فیلتر:</b> <code>{stats.get('offline_configs', 0)}</code> عدد\n"
+        f"⚡ <b>میانگین پینگ سرورهای متصل:</b> <code>{avg_ping}ms</code>\n\n"
+        "✨ <i>پست‌های ارسالی تنها از سرورهای باکیفیت و متصل تغذیه می‌شوند.</i>"
     )
     
     keyboard = [
@@ -386,11 +422,14 @@ async def cb_ping_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     
-    await query.edit_message_text(
-        text=result_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=result_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 async def cb_clear_dead(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سرورهای قطع"""
@@ -398,36 +437,46 @@ async def cb_clear_dead(update: Update, context: ContextTypes.DEFAULT_TYPE):
     deleted = await delete_dead_configs()
     await query.answer(f"تعداد {deleted} سرور قطع حذف شدند! 🧹", show_alert=True)
     
+    settings = await get_all_settings()
+    auto_send_on = settings.get("auto_send", "0") == "1"
+    batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
     menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(await get_setting("auto_send", "0") == "1")
+    reply_markup = build_main_keyboard(auto_send_on, batch_size, source_mode)
     
-    await query.edit_message_text(
-        text=menu_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=menu_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 async def cb_harvest_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت فوری سرورهای آنلاین از مخازن ابری"""
     query = update.callback_query
     await query.answer("در حال دریافت کانفیگ‌های تازه از مخازن آنلاین...")
     
-    await query.edit_message_text(
-        "⏳ **در حال دریافت سرورهای تازه از سابسکریپشن‌های آنلاین...**\nلطفاً چند لحظه صبر کنید...",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            "⏳ <b>در حال دریافت سرورهای تازه از سابسکریپشن‌های آنلاین...</b>\nلطفاً چند لحظه صبر کنید...",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
     
     sources = await get_active_source_urls()
     report = await harvest_and_store_online_configs(sources=sources, instant_test_count=60)
     stats = await get_stats()
     
     result_text = (
-        "🎉 **دریافت ابری با موفقیت انجام شد!**\n\n"
-        f"📥 **سرورهای دریافت شده:** `{report['total_fetched']}` عدد\n"
-        f"➕ **سرورهای جدید اضافه شده:** `{report['new_added']}` عدد\n"
-        f"⚠️ **سرورهای تکراری:** `{report['duplicates']}` عدد\n"
-        f"🟢 **سرورهای آنلاین تایید شده:** `{report['instant_online']}` عدد\n"
-        f"📊 **موجودی کل مخزن:** `{stats['total_configs']}` عدد"
+        "🎉 <b>دریافت ابری با موفقیت انجام شد!</b>\n\n"
+        f"📥 <b>سرورهای دریافت شده:</b> <code>{report['total_fetched']}</code> عدد\n"
+        f"➕ <b>سرورهای جدید اضافه شده:</b> <code>{report['new_added']}</code> عدد\n"
+        f"⚠️ <b>سرورهای تکراری:</b> <code>{report['duplicates']}</code> عدد\n"
+        f"🟢 <b>سرورهای آنلاین تایید شده:</b> <code>{report['instant_online']}</code> عدد\n"
+        f"📊 <b>موجودی کل مخزن:</b> <code>{stats.get('total_configs', 0)}</code> عدد"
     )
     
     keyboard = [
@@ -437,11 +486,14 @@ async def cb_harvest_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     
-    await query.edit_message_text(
-        text=result_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=result_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 async def cb_test_send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ارسال تستی یک بسته سرور مستقیماً به پیوی ادمین"""
@@ -456,6 +508,45 @@ async def cb_test_send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not success:
         try:
             await context.bot.send_message(chat_id=admin_chat_id, text=msg)
+        except Exception:
+            pass
+
+async def cb_advanced_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی تنظیمات پیشرفته و ابزارهای فنی ربات برای ادمین"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await query.answer("⛔ فقط مخصوص مدیریت است.", show_alert=True)
+        return
+    await query.answer()
+    
+    text = (
+        "⚙️ <b>تنظیمات پیشرفته و ابزارهای فنی ربات:</b>\n\n"
+        "👇 از گزینه‌های زیر جهت نگهداری، دریافت دستی و بهینه‌سازی مخزن استفاده کنید:"
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton("📥 دریافت فوری سرور از مخازن", callback_data="btn_harvest_now"),
+            InlineKeyboardButton("🧹 پاکسازی سرورهای قطع", callback_data="btn_clear_dead"),
+        ],
+        [
+            InlineKeyboardButton("🚀 ارسال مستقیم نود VIP ابری", callback_data="btn_codespace_vip"),
+            InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="btn_main_menu"),
+        ]
+    ]
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        try:
+            await query.message.reply_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
         except Exception:
             pass
 
@@ -522,31 +613,31 @@ async def cb_metrics_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
     carrier_names = {"mci": "📡 همراه اول", "mtn": "📱 ایرانسل", "wifi": "📶 مخابرات/رایتل", "all": "🌐 عمومی"}
     for k, v in c_stats.items():
         name = carrier_names.get(k, k)
-        carrier_lines.append(f"  • {name}: `{v['requests']}` درخواست (میانگین پینگ: `{v['avg_latency']}ms`)")
+        carrier_lines.append(f"  • {name}: <code>{v['requests']}</code> درخواست (میانگین پینگ: <code>{v['avg_latency']}ms</code>)")
     carrier_str = "\n".join(carrier_lines) if carrier_lines else "  • داده‌های کافی برای تفکیک هنوز ثبت نشده است."
 
     dash_text = (
-        "📈 **داشبورد تله‌متری و پایش عملکرد (Engine v2)**\n\n"
-        "⚡ **شاخص‌های کلیدی تاخیر (Latency Metrics):**\n"
-        f"• میانه تاخیر (P50 Latency): 🟢 `{summary['p50_latency']}ms`\n"
-        f"• چارک ۷۵ (P75 Latency): 🟡 `{summary['p75_latency']}ms`\n"
-        f"• صدک ۹۵ (P95 Latency): 🟠 `{summary['p95_latency']}ms`\n"
-        f"• صدک ۹۹ (P99 Latency): 🔴 `{summary['p99_latency']}ms`\n"
-        f"• میانگین TTFB: ⚡ `{summary['avg_ttfb']}ms`\n\n"
-        "🛡️ **شاخص‌های پایداری و ضد تایم‌اوت:**\n"
-        f"• نرخ موفقیت اتصال: 🟢 `{summary['success_rate']}%`\n"
-        f"• نرخ تایم‌اوت: 🛡️ `{summary['timeout_rate']}%` (هدف: صفر)\n"
-        f"• نرخ برخورد کش (Cache Hit Rate): ⚡ `{summary['cache_hit_rate']}%`\n"
-        f"• کل درخواست‌های پایش‌شده: `{summary['total_requests']}` عدد\n\n"
-        "🌐 **تفکیک عملکرد اپراتورها (Carrier Performance):**\n"
+        "📈 <b>داشبورد تله‌متری و پایش عملکرد (Engine v2)</b>\n\n"
+        "⚡ <b>شاخص‌های کلیدی تاخیر (Latency Metrics):</b>\n"
+        f"• میانه تاخیر (P50 Latency): 🟢 <code>{summary['p50_latency']}ms</code>\n"
+        f"• چارک ۷۵ (P75 Latency): 🟡 <code>{summary['p75_latency']}ms</code>\n"
+        f"• صدک ۹۵ (P95 Latency): 🟠 <code>{summary['p95_latency']}ms</code>\n"
+        f"• صدک ۹۹ (P99 Latency): 🔴 <code>{summary['p99_latency']}ms</code>\n"
+        f"• میانگین TTFB: ⚡ <code>{summary['avg_ttfb']}ms</code>\n\n"
+        "🛡️ <b>شاخص‌های پایداری و ضد تایم‌اوت:</b>\n"
+        f"• نرخ موفقیت اتصال: 🟢 <code>{summary['success_rate']}%</code>\n"
+        f"• نرخ تایم‌اوت: 🛡️ <code>{summary['timeout_rate']}%</code> (هدف: صفر)\n"
+        f"• نرخ برخورد کش (Cache Hit Rate): ⚡ <code>{summary['cache_hit_rate']}%</code>\n"
+        f"• کل درخواست‌های پایش‌شده: <code>{summary['total_requests']}</code> عدد\n\n"
+        "🌐 <b>تفکیک عملکرد اپراتورها (Carrier Performance):</b>\n"
         f"{carrier_str}\n\n"
-        "📊 **وضعیت سلامت استخر نودها (Node Health States):**\n"
-        f"• 🟢 کاملاً سالم (Healthy): `{healthy_count}`\n"
-        f"• 🟡 نیازمند بهینه‌سازی (Degraded): `{degraded_count}`\n"
-        f"• 🟠 دارای نوسان (Unstable): `{unstable_count}`\n"
-        f"• 🔵 در حال بازگشت (Recovering): `{recovering_count}`\n"
-        f"• 🔴 قطع / قرنطینه (Offline): `{offline_count}`\n\n"
-        "✨ *موتور هوشمند هر ۳۰ ثانیه سلامت سرورها و هر ۳۰ دقیقه مخازن را رفرش می‌کند.*"
+        "📊 <b>وضعیت سلامت استخر نودها (Node Health States):</b>\n"
+        f"• 🟢 کاملاً سالم (Healthy): <code>{healthy_count}</code>\n"
+        f"• 🟡 نیازمند بهینه‌سازی (Degraded): <code>{degraded_count}</code>\n"
+        f"• 🟠 دارای نوسان (Unstable): <code>{unstable_count}</code>\n"
+        f"• 🔵 در حال بازگشت (Recovering): <code>{recovering_count}</code>\n"
+        f"• 🔴 قطع / قرنطینه (Offline): <code>{offline_count}</code>\n\n"
+        "✨ <i>موتور هوشمند هر ۳۰ ثانیه سلامت سرورها و هر ۳۰ دقیقه مخازن را رفرش می‌کند.</i>"
     )
     
     keyboard = [
@@ -556,11 +647,14 @@ async def cb_metrics_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
         ]
     ]
     
-    await query.edit_message_text(
-        text=dash_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        await query.edit_message_text(
+            text=dash_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
 
 # ----------------- بخش دریافت هوشمند کانفیگ و پروکسی کاربران بر اساس اپراتور -----------------
 
@@ -570,14 +664,14 @@ async def cb_user_menu_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user_text = (
-        "🔮 **دریافت هوشمند سرور بر اساس اپراتور:**\n\n"
+        "🔮 <b>دریافت هوشمند سرور بر اساس اپراتور:</b>\n\n"
         "سرورها متناسب با هر سیم‌کارت بهینه‌سازی شده‌اند و دارای پینگ پایدار می‌باشند.\n"
         "👇 لطفاً اپراتور خود را انتخاب کنید:"
     )
     await query.message.reply_text(
         text=user_text,
         reply_markup=build_user_menu_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 async def cb_deliver_operator_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -686,24 +780,13 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال لینک سابسکریپشن یکپارچه و دائمی به کاربر پس از تست و انتخاب زنده ۱۰ سرور پینگ‌سبز"""
+    """ارسال فوری لینک سابسکریپشن یکپارچه و دائمی (۱۰ سرور پینگ‌سبز) بدون فریز شدن ربات"""
     query = update.callback_query
-    await query.answer("🔍 در حال اسکن و تست زنده ۱۰ سرور پرسرعت...")
-    
-    # پیام موقت جهت تفکر و اسکن سرورها
-    status_msg = await query.message.reply_text(
-        "⏳ <b>در حال ارزیابی اتصال و غربالگری ۱۰ سرور با پینگ سبز...</b>",
-        parse_mode=ParseMode.HTML
-    )
+    await query.answer("🌐 لینک سابسکریپشن آماده شد!")
     
     tag = await get_setting("tag", DEFAULT_TAG)
-    
-    try:
-        from codespace_vip import generate_and_publish_universal_sub
-        sub_url = await generate_and_publish_universal_sub(tag=tag, target_count=10)
-    except Exception as ex:
-        logger.error(f"Error generating sub: {ex}")
-        sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
+    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
+    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
     
     msg = (
         "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور گلچین با پینگ سبز):</b>\n\n"
@@ -711,46 +794,59 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         "• 📱 بهینه‌شده برای ایرانسل (VLESS Reality)\n"
         "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
         "• 📶 مخابرات، رایتل و وای‌فای خانگی\n\n"
-        "👇 <b>لینک سابسکریپشن (روی کادر زیر بزنید تا کپی شود):</b>\n\n"
+        "👇 <b>لینک سابسکریپشن اصلی (روی کادر زیر بزنید تا کپی شود):</b>\n\n"
         f"<code>{sub_url}</code>\n\n"
         "-----------------\n"
+        "🔄 <b>لینک جایگزین / کمکی (CDN):</b>\n"
+        f"<code>{cdn_url}</code>\n\n"
+        "-----------------\n"
         "💡 <b>نحوه استفاده در Hiddify و v2rayNG:</b>\n"
-        "1️⃣ لینک بالا را کپی کنید.\n"
+        "1️⃣ لینک اول را کپی کنید.\n"
         "2️⃣ در برنامه روی <b>+ (افزودن پروفایل)</b> بزنید و <b>افزودن از کلیپ‌بورد</b> را انتخاب کنید.\n\n"
         f"✅ {tag}"
     )
     
-    await status_msg.edit_text(
+    await query.message.reply_text(
         text=msg,
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
 
-
-
 async def cb_force_refresh_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نوسازی و غربالگری بلادرنگ تمام سرورهای سابسکریپشن توسط ادمین"""
+    """نوسازی و غربالگری بلادرنگ تمام سرورهای سابسکریپشن در پس‌زمینه توسط ادمین"""
     query = update.callback_query
     if not is_admin(update.effective_user.id):
-        await query.answer("❌ دسترسی غیرمجاز.")
+        await query.answer("❌ دسترسی غیرمجاز.", show_alert=True)
         return
         
-    await query.answer("🔄 در حال تست زنده پینگ و غربالگری ۵۰ سرور سابسکریپشن...")
-    try:
-        from codespace_vip import generate_and_publish_universal_sub
-        tag = await get_setting("tag", DEFAULT_TAG)
-        url = await generate_and_publish_universal_sub(tag=tag)
-        await query.message.reply_text(
-            "✅ <b>سابسکریپشن سراسری با موفقیت غربالگری و نوسازی شد!</b>\n\n"
-            "• تمامی سرورهای سوخته یا کند حذف شدند.\n"
-            "• سرورهای جدید تست‌شده با پینگ سبز جایگزین شدند.\n"
-            "• فایل سابسکریپشن روی مخزن گیت‌هاب بروزرسانی شد.\n\n"
-            f"🔗 <code>{url}</code>",
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
-        )
-    except Exception as ex:
-        await query.message.reply_text(f"⚠️ خطا در نوسازی سابسکریپشن: {ex}")
+    await query.answer("🔄 غربالگری سابسکریپشن در پس‌زمینه آغاز شد...", show_alert=True)
+    status_msg = await query.message.reply_text(
+        "⏳ <b>در حال تست زنده پینگ و غربالگری سرورهای سابسکریپشن در پس‌زمینه...</b>\nپس از اتمام نتیجه ارسال خواهد شد.",
+        parse_mode=ParseMode.HTML
+    )
+    
+    async def _bg_refresh():
+        try:
+            from codespace_vip import generate_and_publish_universal_sub
+            tag = await get_setting("tag", DEFAULT_TAG)
+            url = await generate_and_publish_universal_sub(tag=tag, target_count=10)
+            await status_msg.edit_text(
+                "✅ <b>سابسکریپشن سراسری با موفقیت غربالگری و نوسازی شد!</b>\n\n"
+                "• تمامی سرورهای سوخته یا کند حذف شدند.\n"
+                "• سرورهای جدید تست‌شده با پینگ سبز جایگزین شدند.\n"
+                "• فایل سابسکریپشن روی مخزن گیت‌هاب بروزرسانی شد.\n\n"
+                f"🔗 <code>{url}</code>",
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        except Exception as ex:
+            logger.error(f"Error in background sub refresh: {ex}")
+            try:
+                await status_msg.edit_text(f"⚠️ خطا در نوسازی سابسکریپشن: {ex}")
+            except Exception:
+                pass
+                
+    asyncio.create_task(_bg_refresh())
 
 
 async def cb_get_wireguard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1125,8 +1221,9 @@ async def handle_receive_add_dest(update: Update, context: ContextTypes.DEFAULT_
         
         if bot_member.status not in ("administrator", "creator"):
             await update.message.reply_text(
-                "⚠️ ربات در این مقصد عضو هست اما **ادمین** نشده است! لطفاً ابتدا دسترسی ادمین بدهید و مجدد آیدی را بفرستید.",
-                reply_markup=build_cancel_keyboard()
+                "⚠️ ربات در این مقصد عضو هست اما <b>ادمین</b> نشده است! لطفاً ابتدا دسترسی ادمین بدهید و مجدد آیدی را بفرستید.",
+                reply_markup=build_cancel_keyboard(),
+                parse_mode=ParseMode.HTML
             )
             return STATE_WAIT_ADD_DEST
             
@@ -1137,17 +1234,17 @@ async def handle_receive_add_dest(update: Update, context: ContextTypes.DEFAULT_
         
         reply_markup = await build_destinations_keyboard()
         await update.message.reply_text(
-            f"✅ **مقصد با موفقیت ثبت شد!**\n📌 نام: `{chat.title}`\n🆔 شناسه: `{chat_id_to_save}`",
+            f"✅ <b>مقصد با موفقیت ثبت شد!</b>\n📌 نام: <code>{html.escape(chat.title or '')}</code>\n🆔 شناسه: <code>{html.escape(chat_id_to_save)}</code>",
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         return ConversationHandler.END
         
     except Exception as e:
         await update.message.reply_text(
-            f"❌ خطا در اتصال به مقصد: `{str(e)}`\n\nمطمئن شوید ربات را در کانال/گروه ادمین کرده‌اید.",
+            f"❌ خطا در اتصال به مقصد: <code>{html.escape(str(e))}</code>\n\nمطمئن شوید ربات را در کانال/گروه ادمین کرده‌اید.",
             reply_markup=build_cancel_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         return STATE_WAIT_ADD_DEST
 
@@ -1172,13 +1269,13 @@ async def cb_chat_member_updated(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
                 text=(
-                    "🎉 **کانال/گروه جدید شناسایی شد!**\n\n"
-                    f"📌 **نام:** `{title}`\n"
-                    f"🆔 **شناسه:** `{chat_id_to_save}`\n"
-                    f"📂 **نوع:** `{'کانال' if chat_type == 'channel' else 'گروه'}`\n\n"
+                    "🎉 <b>کانال/گروه جدید شناسایی شد!</b>\n\n"
+                    f"📌 <b>نام:</b> <code>{html.escape(title)}</code>\n"
+                    f"🆔 <b>شناسه:</b> <code>{html.escape(chat_id_to_save)}</code>\n"
+                    f"📂 <b>نوع:</b> {'کانال' if chat_type == 'channel' else 'گروه'}\n\n"
                     "✅ این مقصد به طور خودکار به لیست ارسال‌های فعال ربات افزوده شد."
                 ),
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.HTML
             )
         except Exception:
             pass
@@ -1211,9 +1308,9 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
         total_seconds = max(10, int(86400.0 / count))
         hours = total_seconds / 3600.0
         if hours >= 1:
-            desc = f"**روزی {count:g} بار** (هر {hours:g} ساعت یک ارسال)"
+            desc = f"<b>روزی {count:g} بار</b> (هر {hours:g} ساعت یک ارسال)"
         else:
-            desc = f"**روزی {count:g} بار** (هر {total_seconds // 60} دقیقه یک ارسال)"
+            desc = f"<b>روزی {count:g} بار</b> (هر {total_seconds // 60} دقیقه یک ارسال)"
         return total_seconds, desc
 
     # 2. بررسی الگوی ساعت (مثلاً ۸ ساعت یا هر ۸ ساعت)
@@ -1225,9 +1322,9 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
         total_seconds = max(10, int(hours * 3600.0))
         times_per_day = 24.0 / hours
         if times_per_day >= 1 and times_per_day.is_integer():
-            desc = f"**هر {hours:g} ساعت یکبار** (روزی {int(times_per_day)} بار ارسال)"
+            desc = f"<b>هر {hours:g} ساعت یکبار</b> (روزی {int(times_per_day)} بار ارسال)"
         else:
-            desc = f"**هر {hours:g} ساعت یکبار**"
+            desc = f"<b>هر {hours:g} ساعت یکبار</b>"
         return total_seconds, desc
 
     # 3. بررسی الگوی نرخ (مثلاً ۲ در ۱ یا ۲ در ۲۴)
@@ -1240,10 +1337,10 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
         if unit_val == 24:
             total_seconds = max(10, int((24 * 3600.0) / count))
             hours = total_seconds / 3600.0
-            desc = f"**{count:g} بار در ۲۴ ساعت** (هر {hours:g} ساعت یک ارسال)"
+            desc = f"<b>{count:g} بار در ۲۴ ساعت</b> (هر {hours:g} ساعت یک ارسال)"
             return total_seconds, desc
         total_seconds = max(10, int((unit_val * 60.0) / count))
-        desc = f"**{count:g} بار در هر {unit_val:g} دقیقه** (هر `{total_seconds}` ثانیه یک ارسال)"
+        desc = f"<b>{count:g} بار در هر {unit_val:g} دقیقه</b> (هر <code>{total_seconds}</code> ثانیه یک ارسال)"
         return total_seconds, desc
 
     # 4. بررسی عدد ساده (پیش‌فرض بر حسب دقیقه)
@@ -1253,12 +1350,12 @@ def parse_schedule_input(text: str) -> Tuple[Optional[int], str]:
             return None, "مقدار زمان باید بزرگتر از صفر باشد."
         total_seconds = max(10, int(val * 60.0))
         if total_seconds < 60:
-            desc = f"**هر `{total_seconds}` ثانیه یکبار**"
+            desc = f"<b>هر <code>{total_seconds}</code> ثانیه یکبار</b>"
         elif total_seconds >= 3600:
             hours = total_seconds / 3600.0
-            desc = f"**هر `{hours:g}` ساعت یکبار**"
+            desc = f"<b>هر <code>{hours:g}</code> ساعت یکبار</b>"
         else:
-            desc = f"**هر `{val:g}` دقیقه یکبار**"
+            desc = f"<b>هر <code>{val:g}</code> دقیقه یکبار</b>"
         return total_seconds, desc
     except ValueError:
         return None, "فرمت وارد شده صحیح نیست."
@@ -1369,9 +1466,9 @@ async def handle_receive_delay(update: Update, context: ContextTypes.DEFAULT_TYP
     source_mode = settings.get("source_mode", "vip")
     
     await update.message.reply_text(
-        f"✅ **سرعت ارسال با موفقیت تنظیم شد!**\n\n🕒 **برنامه جدید:** {desc}",
+        f"✅ <b>سرعت ارسال با موفقیت تنظیم شد!</b>\n\n🕒 <b>برنامه جدید:</b> {desc}",
         reply_markup=build_main_keyboard(auto_send_on, batch_size, source_mode),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
     return ConversationHandler.END
 
@@ -1386,7 +1483,7 @@ async def cb_start_set_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = (
         "🏷️ <b>تغییر نام و تگ سرورها:</b>\n\n"
-        f"تگ فعلی: <code>{cur_tag}</code>\n\n"
+        f"تگ فعلی: <code>{html.escape(cur_tag)}</code>\n\n"
         "لطفاً آیدی جدیدی که می‌خواهید روی سرورها قرار گیرد را بفرستید (مثلاً <code>@Internet_azad369</code>):"
     )
     
@@ -1422,9 +1519,9 @@ async def handle_receive_tag(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await set_setting("tag", new_tag)
     
     await update.message.reply_text(
-        f"✅ تگ سرورها با موفقیت به `{new_tag}` تغییر یافت.",
+        f"✅ تگ سرورها با موفقیت به <code>{html.escape(new_tag)}</code> تغییر یافت.",
         reply_markup=build_main_keyboard(await get_setting("auto_send", "0") == "1"),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
     return ConversationHandler.END
 
@@ -1436,21 +1533,22 @@ async def cb_cancel_conversation(update: Update, context: ContextTypes.DEFAULT_T
     settings = await get_all_settings()
     auto_send_on = settings.get("auto_send", "0") == "1"
     batch_size = settings.get("batch_size", "3")
+    source_mode = settings.get("source_mode", "vip")
     menu_text = await get_main_menu_text()
-    reply_markup = build_main_keyboard(auto_send_on, batch_size)
+    reply_markup = build_main_keyboard(auto_send_on, batch_size, source_mode)
     
     try:
         await query.edit_message_text(
             text=menu_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     except Exception:
         try:
             await query.message.reply_text(
                 text=menu_text,
                 reply_markup=reply_markup,
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.HTML
             )
         except Exception:
             pass
@@ -1479,6 +1577,15 @@ async def post_init(application: Application):
             
     asyncio.create_task(initial_harvest())
     logger.info("ربات، دیتابیس و زمان‌بند هوشمند با موفقیت راه‌اندازی شدند.")
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """هندلر مرکزی خطاها جهت جلوگیری از فریز شدن ربات و دکمه‌ها"""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    if isinstance(update, Update) and update.callback_query:
+        try:
+            await update.callback_query.answer("⚠️ عملیات انجام نشد یا خطایی رخ داد.", show_alert=False)
+        except Exception:
+            pass
 
 def main():
     """نقطه شروع اجرای برنامه"""
@@ -1536,6 +1643,9 @@ def main():
         allow_reentry=True,
     )
     
+    # افزودن هندلر مرکزی خطاها
+    application.add_error_handler(global_error_handler)
+    
     # افزودن هندلرها
     application.add_handler(CommandHandler(["start", "admin", "panel"], cmd_start))
     application.add_handler(ChatMemberHandler(cb_chat_member_updated, ChatMemberHandler.MY_CHAT_MEMBER))
@@ -1554,6 +1664,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_metrics_dashboard, pattern="^btn_metrics_dashboard$"))
     application.add_handler(CallbackQueryHandler(cb_ping_all, pattern="^btn_ping_all$"))
     application.add_handler(CallbackQueryHandler(cb_clear_dead, pattern="^btn_clear_dead$"))
+    application.add_handler(CallbackQueryHandler(cb_advanced_settings, pattern="^btn_advanced_settings$"))
     application.add_handler(CallbackQueryHandler(cb_manage_dest_delays, pattern="^btn_manage_dest_delays$"))
     application.add_handler(CallbackQueryHandler(cb_manage_destinations, pattern="^btn_manage_destinations$"))
     application.add_handler(CallbackQueryHandler(cb_open_single_dest, pattern="^btn_open_dest_"))
@@ -1568,11 +1679,6 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_get_universal_sub, pattern="^btn_universal_sub$"))
     application.add_handler(CallbackQueryHandler(cb_force_refresh_sub, pattern="^btn_force_refresh_sub$"))
     application.add_handler(CallbackQueryHandler(cb_get_wireguard, pattern="^btn_get_wireguard$"))
-
-
-
-
-    
     application.add_handler(CallbackQueryHandler(cb_cancel_conversation, pattern="^btn_cancel$"))
     
     logger.info("در حال اجرای ربات...")

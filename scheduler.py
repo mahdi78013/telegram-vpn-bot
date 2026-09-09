@@ -2,6 +2,7 @@ import asyncio
 import html
 import logging
 import random
+import time
 from typing import Optional, Tuple, List, Dict, Any
 from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import TelegramError, RetryAfter, Forbidden, BadRequest

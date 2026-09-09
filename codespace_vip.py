@@ -207,8 +207,10 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     import base64
     import json
     import re
-    import aiohttp
     import asyncio
+    import urllib.request
+    import urllib.parse
+    import ssl
     from tester import ping_single_config
     from parser import sanitize_url_parameters, decode_base64_safe
     
@@ -281,85 +283,67 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         return False
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۳: دانلود غیرهمزمان از تمام منابع فعال و پرسرعت
+    # فاز ۳: دانلود غیرهمزمان از منابع طلایی و فعال مخصوص ایران
     # ═══════════════════════════════════════════════════════════════
     sources = [
-        # MahsaNet (مخصوص همراه اول و ایرانسل)
+        # ۱. منابع اختصاصی و تاییدشده مهسانت (همراه اول و ایرانسل)
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-        # Barry-Far
+        "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt",
+        # ۲. مخازن فعال پروتکل‌های VLESS Reality و Hysteria 2
+        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
         "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
         "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub2.txt",
-        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub3.txt",
-        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Splitted-By-Protocol/vless.txt",
-        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt",
-        # Epodonios
-        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
-        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/hysteria2.txt",
-        # Yebekhe TVC
-        "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/vless",
-        "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/hysteria2",
-        # Other Active Repos
-        "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt",
-        "https://raw.githubusercontent.com/Surfboardv2ray/v2ray-worker-sub/master/sub/base64",
-        "https://raw.githubusercontent.com/LalatinaHub/Mineral/master/result/nodes",
     ]
     
     SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://", "ss://")
     
     candidates = []
     
-    async def fetch_source(session, url):
-        """دانلود غیرهمزمان هر منبع"""
+    def fetch_sync(url: str) -> list:
         fetched = []
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-                if resp.status != 200:
-                    return fetched
-                raw = await resp.text(errors='ignore')
-                lines = raw.split('\n')
-                for line in lines:
-                    l = line.strip()
-                    if not l:
-                        continue
-                    if any(l.startswith(p) for p in SUPPORTED_PREFIXES):
-                        fetched.append(l)
-                    else:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            req = urllib.request.Request(url, headers={"User-Agent": "Hiddify/2.5.7"})
+            with urllib.request.urlopen(req, context=ctx, timeout=6) as resp:
+                if resp.status == 200:
+                    raw = resp.read().decode('utf-8', errors='ignore').strip()
+                    if not any(p in raw for p in ("vless://", "vmess://", "trojan://", "ss://")):
                         try:
-                            dec = decode_base64_safe(l)
-                            for il in dec.split('\n'):
-                                il = il.strip()
-                                if any(il.startswith(p) for p in SUPPORTED_PREFIXES):
-                                    fetched.append(il)
+                            dec = decode_base64_safe(raw)
+                            if any(p in dec for p in ("vless://", "vmess://", "trojan://", "ss://")):
+                                raw = dec
                         except Exception:
                             pass
+                    lines = raw.split('\n')
+                    for line in lines:
+                        l = line.strip()
+                        if l and any(l.startswith(p) for p in SUPPORTED_PREFIXES):
+                            fetched.append(l)
         except Exception as e:
             logger.debug(f"Error fetching {url}: {e}")
         return fetched
+
+    fetch_tasks = [asyncio.to_thread(fetch_sync, s) for s in sources]
+    results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+    for r in results:
+        if isinstance(r, list):
+            for c in r:
+                if c not in candidates:
+                    candidates.append(c)
     
-    try:
-        async with aiohttp.ClientSession(
-            headers={"User-Agent": "v2rayNG/1.8.12"}
-        ) as session:
-            fetch_tasks = [fetch_source(session, s) for s in sources]
-            results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-            for r in results:
-                if isinstance(r, list):
-                    for c in r:
-                        if c not in candidates:
-                            candidates.append(c)
-    except Exception as e:
-        logger.warning(f"Error in batch fetch: {e}")
-    
-    logger.info(f"📥 {len(candidates)} کانفیگ خام از {len(sources)} منبع جمع‌آوری شد.")
+    logger.info(f"📥 {len(candidates)} کانفیگ خام از منابع اختصاصی جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: غربالگری اولیه و حذف نودهای مسدود
+    # فاز ۴: غربالگری اولیه و حذف نودهای مسدود در ایران
     # ═══════════════════════════════════════════════════════════════
     BLOCKED_SNIS = (
         ".ru", "yandex", "ya.ru", "vk.com", "mail.ru", "foodnetwork.com",
         "railway.app", "workers.dev", "pages.dev", "cloudflare.com",
-        "t.me", "telegram.org", "discord.com"
+        "t.me", "telegram.org", "discord.com", "helper-internet",
+        "murhost", "savesafe", "convert-flow"
     )
     
     clean_pool = []
@@ -380,7 +364,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
             continue
         if any(bad in c_lower for bad in BLOCKED_SNIS):
             continue
-        if "bia_telegram" in c_lower:
+        if "pbk=" in c_lower and "fp=firefox" in c_lower:
             continue
         seen_bases.add(base)
         clean_pool.append(base)
@@ -390,29 +374,28 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     # ═══════════════════════════════════════════════════════════════
     # فاز ۵: تست عمیق موازی پینگ و سنجش تاخیر تا تضمین ۱۰ سرور زنده
     # ═══════════════════════════════════════════════════════════════
-    sem = asyncio.Semaphore(60)
+    sem = asyncio.Semaphore(50)
     passed_nodes = []
     
     async def probe(conf_base):
         async with sem:
             try:
-                res = await ping_single_config(conf_base, connect_timeout=1.2)
-                if res.is_online and 25 <= res.ping_ms <= 420:
+                res = await ping_single_config(conf_base, connect_timeout=1.5)
+                if res.is_online and 20 <= res.ping_ms <= 650:
                     host = extract_host(conf_base)
                     return (conf_base, host, res.ping_ms)
             except Exception:
                 pass
             return None
             
-    # تست دسته‌ای تا رسیدن به تعداد کافی نود زنده
-    batch_size = 350
-    for i in range(0, min(len(clean_pool), 1400), batch_size):
+    batch_size = 300
+    for i in range(0, min(len(clean_pool), 1200), batch_size):
         chunk = clean_pool[i:i + batch_size]
         results = await asyncio.gather(*[probe(c) for c in chunk], return_exceptions=True)
         for r in results:
             if isinstance(r, tuple) and r is not None:
                 passed_nodes.append(r)
-        if len(passed_nodes) >= target_count * 3:
+        if len(passed_nodes) >= target_count * 2:
             break
             
     logger.info(f"⚡ تعداد نودهای زنده و پاسخگو: {len(passed_nodes)}")
@@ -447,11 +430,10 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     final_confs = []
     for idx, (conf_base, pms) in enumerate(combined[:target_count], 1):
         cc = EURO_COUNTRIES[(idx - 1) % len(EURO_COUNTRIES)]
-        from parser import transform_config
-        clean_c, flag, proto = transform_config(conf_base, tag=tag)
-        base_clean = clean_c.split("#")[0].strip()
-        remark = f"VIP-{idx:02d} [{cc}] {tag}"
-        final_confs.append(f"{base_clean}#{remark}")
+        clean_base = conf_base.split("#")[0].strip()
+        icon = "🚀" if ("hy2" in clean_base or "tuic" in clean_base) else "⚡"
+        remark = f"VIP-{idx:02d} [{cc}] {icon} {tag}"
+        final_confs.append(f"{clean_base}#{remark}")
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")
@@ -474,85 +456,99 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     # ═══════════════════════════════════════════════════════════════
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT", "")
     
-    # ریپوی مخفی با اسم بی‌ربط — بدون نام VPN یا ربات
     stealth_repo = "mahdi78013/static-web-content"
     stealth_file = "assets/d9f3a7c2.dat"
     cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
     
-    if token:
+    def _publish_to_github():
+        if not token:
+            return
+        gh_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "StaticCDN-Updater",
+            "Content-Type": "application/json"
+        }
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        # ۱. انتشار در ریپوی مخفی
+        stealth_api = f"https://api.github.com/repos/{stealth_repo}/contents/{stealth_file}"
+        sha = ""
         try:
-            b64_payload = base64.b64encode(b64_content.encode("utf-8")).decode("utf-8")
-            gh_headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "StaticCDN-Updater"
-            }
+            req = urllib.request.Request(f"{stealth_api}?ref=main", headers=gh_headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+                if resp.status == 200:
+                    d = json.loads(resp.read().decode('utf-8'))
+                    sha = d.get("sha", "")
+        except Exception:
+            pass
             
-            async with aiohttp.ClientSession() as session:
-                # انتشار در ریپوی مخفی
-                stealth_api = f"https://api.github.com/repos/{stealth_repo}/contents/{stealth_file}"
-                sha = ""
-                try:
-                    async with session.get(f"{stealth_api}?ref=main", headers=gh_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            d = await resp.json()
-                            sha = d.get("sha", "")
-                except Exception:
+        b64_payload = base64.b64encode(b64_content.encode("utf-8")).decode("utf-8")
+        body_dict = {
+            "message": "Update static content",
+            "content": b64_payload,
+        }
+        if sha:
+            body_dict["sha"] = sha
+            
+        try:
+            req_put = urllib.request.Request(
+                stealth_api,
+                data=json.dumps(body_dict).encode('utf-8'),
+                headers=gh_headers,
+                method="PUT"
+            )
+            with urllib.request.urlopen(req_put, context=ctx, timeout=12) as resp:
+                logger.info(f"✅ سابسکریپشن {len(final_confs)} نود در ریپوی مخفی منتشر شد.")
+        except Exception as e:
+            logger.warning(f"Stealth push error: {e}")
+            
+        # ۲. انتشار در ریپوی ربات
+        main_api = "https://api.github.com/repos/mahdi78013/telegram-vpn-bot/contents/sub.txt"
+        sha2 = ""
+        try:
+            req2 = urllib.request.Request(f"{main_api}?ref=main", headers=gh_headers)
+            with urllib.request.urlopen(req2, context=ctx, timeout=8) as resp:
+                if resp.status == 200:
+                    d2 = json.loads(resp.read().decode('utf-8'))
+                    sha2 = d2.get("sha", "")
+        except Exception:
+            pass
+        body2 = {"message": "Sync sub [skip ci]", "content": b64_payload}
+        if sha2:
+            body2["sha"] = sha2
+        try:
+            req_put2 = urllib.request.Request(
+                main_api,
+                data=json.dumps(body2).encode('utf-8'),
+                headers=gh_headers,
+                method="PUT"
+            )
+            with urllib.request.urlopen(req_put2, context=ctx, timeout=12) as resp:
+                pass
+        except Exception:
+            pass
+            
+        # ۳. پاکسازی کش CDN
+        for purge in [
+            f"https://purge.jsdelivr.net/gh/{stealth_repo}@main/{stealth_file}",
+            "https://purge.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
+        ]:
+            try:
+                req_p = urllib.request.Request(purge, headers={"User-Agent": "PurgeBot/1.0"})
+                with urllib.request.urlopen(req_p, context=ctx, timeout=5) as resp:
                     pass
-                
-                body_dict = {
-                    "message": "Update static content",
-                    "content": b64_payload,
-                }
-                if sha:
-                    body_dict["sha"] = sha
-                
-                async with session.put(
-                    stealth_api,
-                    headers=gh_headers,
-                    json=body_dict,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status in (200, 201):
-                        logger.info(f"✅ سابسکریپشن {len(final_confs)} نود در ریپوی مخفی منتشر شد.")
-                    else:
-                        txt = await resp.text()
-                        logger.warning(f"Stealth push status {resp.status}: {txt[:200]}")
-                
-                # همچنین در ریپوی اصلی هم آپدیت کن (برای سازگاری)
-                main_api = "https://api.github.com/repos/mahdi78013/telegram-vpn-bot/contents/sub.txt"
-                sha2 = ""
-                try:
-                    async with session.get(f"{main_api}?ref=main", headers=gh_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            d2 = await resp.json()
-                            sha2 = d2.get("sha", "")
-                except Exception:
-                    pass
-                body2 = {"message": "Sync sub [skip ci]", "content": b64_payload}
-                if sha2:
-                    body2["sha"] = sha2
-                try:
-                    async with session.put(main_api, headers=gh_headers, json=body2, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                        pass
-                except Exception:
-                    pass
-                
-                # پاکسازی کش CDN هر دو
-                for purge in [
-                    f"https://purge.jsdelivr.net/gh/{stealth_repo}@main/{stealth_file}",
-                    "https://purge.jsdelivr.net/gh/mahdi78013/telegram-vpn-bot@main/sub.txt"
-                ]:
-                    try:
-                        async with session.get(purge, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                            pass
-                    except Exception:
-                        pass
-                logger.info("🧹 کش CDN پاکسازی شد.")
-                    
-        except Exception as ex:
-            logger.warning(f"Error publishing sub to GitHub: {ex}")
-    
+            except Exception:
+                pass
+        logger.info("🧹 کش CDN پاکسازی شد.")
+
+    try:
+        await asyncio.to_thread(_publish_to_github)
+    except Exception as e:
+        logger.warning(f"Publish error: {e}")
+        
     avg_ping = int(sum(p for _, p in combined) / max(len(combined), 1))
     logger.info(f"📊 میانگین پینگ {len(combined)} سرور منتخب: {avg_ping}ms")
     

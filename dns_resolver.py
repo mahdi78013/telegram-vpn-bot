@@ -2,8 +2,11 @@ import asyncio
 import logging
 import socket
 import time
+import json
+import urllib.request
+import urllib.parse
+import ssl
 from typing import Optional, List, Tuple, Dict
-import httpx
 
 logger = logging.getLogger("DNSResolver")
 
@@ -18,25 +21,30 @@ DOH_RESOLVERS = [
     "https://9.9.9.9/dns-query",
 ]
 
+def _sync_doh_query(url: str, host: str, timeout: float = 1.2) -> List[str]:
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        full_url = f"{url}?name={urllib.parse.quote(host)}&type=A"
+        req = urllib.request.Request(full_url, headers={"accept": "application/dns-json", "User-Agent": "DNSResolver/1.0"})
+        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                answers = data.get("Answer", [])
+                return [ans["data"] for ans in answers if ans.get("type") == 1]
+    except Exception:
+        pass
+    return []
+
 async def resolve_host_doh(host: str, timeout: float = 1.2) -> List[str]:
     """
     حل نام دامنه از طریق پروتکل DNS-over-HTTPS (DoH) جهت عبور از مسدودی و آلودگی DNS
     """
-    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-        for resolver in DOH_RESOLVERS:
-            try:
-                headers = {"accept": "application/dns-json"}
-                params = {"name": host, "type": "A"}
-                resp = await client.get(resolver, params=params, headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    answers = data.get("Answer", [])
-                    ips = [ans["data"] for ans in answers if ans.get("type") == 1]
-                    if ips:
-                        return ips
-            except Exception as e:
-                logger.debug(f"DoH resolver {resolver} failed for {host}: {e}")
-                continue
+    for resolver in DOH_RESOLVERS:
+        ips = await asyncio.to_thread(_sync_doh_query, resolver, host, timeout)
+        if ips:
+            return ips
     return []
 
 async def resolve_host(

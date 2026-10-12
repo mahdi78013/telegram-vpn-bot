@@ -283,17 +283,13 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
         return False
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۳: دانلود غیرهمزمان از منابع طلایی و فعال مخصوص ایران
+    # فاز ۳: دانلود غیرهمزمان از مخزن رسمی مهسا
     # ═══════════════════════════════════════════════════════════════
     sources = [
-        # ۱. منابع اختصاصی و تاییدشده مهسانت (همراه اول و ایرانسل)
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
+        "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_2.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
         "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt",
-        # ۲. مخازن فعال پروتکل‌های VLESS Reality و Hysteria 2
-        "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
-        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
-        "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub2.txt",
     ]
     
     SUPPORTED_PREFIXES = ("vless://", "hy2://", "hysteria2://", "tuic://", "trojan://", "vmess://", "ss://")
@@ -310,10 +306,10 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
             with urllib.request.urlopen(req, context=ctx, timeout=6) as resp:
                 if resp.status == 200:
                     raw = resp.read().decode('utf-8', errors='ignore').strip()
-                    if not any(p in raw for p in ("vless://", "vmess://", "trojan://", "ss://")):
+                    if not any(p in raw for p in ("vless://", "vmess://", "trojan://", "ss://", "hy2://", "hysteria2://")):
                         try:
                             dec = decode_base64_safe(raw)
-                            if any(p in dec for p in ("vless://", "vmess://", "trojan://", "ss://")):
+                            if any(p in dec for p in ("vless://", "vmess://", "trojan://", "ss://", "hy2://", "hysteria2://")):
                                 raw = dec
                         except Exception:
                             pass
@@ -334,112 +330,192 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
                 if c not in candidates:
                     candidates.append(c)
     
-    logger.info(f"📥 {len(candidates)} کانفیگ خام از منابع اختصاصی جمع‌آوری شد.")
+    logger.info(f"📥 {len(candidates)} کانفیگ از مخزن مهسا جمع‌آوری شد.")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۴: غربالگری اولیه و حذف نودهای مسدود در ایران
+    # فاز ۴: استخراج هاست و حذف تکراری‌ها
     # ═══════════════════════════════════════════════════════════════
-    BLOCKED_SNIS = (
-        ".ru", "yandex", "ya.ru", "vk.com", "mail.ru", "foodnetwork.com",
-        "railway.app", "workers.dev", "pages.dev", "cloudflare.com",
-        "t.me", "telegram.org", "discord.com", "helper-internet",
-        "murhost", "savesafe", "convert-flow"
-    )
-    
     clean_pool = []
     seen_bases = set()
     
     def extract_host(conf_str: str) -> str:
+        if conf_str.lower().startswith("vmess://"):
+            try:
+                b64_part = conf_str[8:].split("#")[0]
+                obj = json.loads(decode_base64_safe(b64_part))
+                return str(obj.get("add", "")).lower()
+            except Exception:
+                return ""
         m = re.search(r'@([^:/?#]+):(\d+)', conf_str)
         if m:
             return m.group(1).lower()
         return ""
         
     for c in candidates:
-        base = c.split("#")[0].strip()
+        base = c.split("#")[0].strip() if not c.lower().startswith("vmess://") else c.strip()
         if not base or base in seen_bases:
             continue
-        c_lower = base.lower()
-        if "security=none" in c_lower or "security=&" in c_lower:
-            continue
-        if any(bad in c_lower for bad in BLOCKED_SNIS):
-            continue
-        if "pbk=" in c_lower and "fp=firefox" in c_lower:
-            continue
         seen_bases.add(base)
-        clean_pool.append(base)
+        clean_pool.append(c.strip())
         
-    logger.info(f"🔍 استخر کانفیگ‌های پاکسازی‌شده: {len(clean_pool)} نود")
+    logger.info(f"🔍 استخر کانفیگ‌های یکتا: {len(clean_pool)} نود")
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۵: تست عمیق موازی پینگ و سنجش تاخیر تا تضمین ۱۰ سرور زنده
+    # فاز ۵: تست موازی پینگ سرورهای مهسا
     # ═══════════════════════════════════════════════════════════════
-    sem = asyncio.Semaphore(50)
+    sem = asyncio.Semaphore(40)
     passed_nodes = []
     
-    async def probe(conf_base):
+    async def probe(full_conf):
         async with sem:
             try:
-                res = await ping_single_config(conf_base, connect_timeout=1.5)
-                if res.is_online and 20 <= res.ping_ms <= 650:
-                    host = extract_host(conf_base)
-                    return (conf_base, host, res.ping_ms)
+                res = await ping_single_config(full_conf, connect_timeout=2.0)
+                if res.is_online and 10 <= res.ping_ms <= 800:
+                    host = extract_host(full_conf)
+                    return (full_conf, host, res.ping_ms)
             except Exception:
                 pass
             return None
             
-    batch_size = 300
-    for i in range(0, min(len(clean_pool), 1200), batch_size):
-        chunk = clean_pool[i:i + batch_size]
-        results = await asyncio.gather(*[probe(c) for c in chunk], return_exceptions=True)
-        for r in results:
-            if isinstance(r, tuple) and r is not None:
-                passed_nodes.append(r)
-        if len(passed_nodes) >= target_count * 2:
-            break
+    results = await asyncio.gather(*[probe(c) for c in clean_pool], return_exceptions=True)
+    for r in results:
+        if isinstance(r, tuple) and r is not None:
+            passed_nodes.append(r)
             
-    logger.info(f"⚡ تعداد نودهای زنده و پاسخگو: {len(passed_nodes)}")
+    logger.info(f"⚡ تعداد نودهای زنده و پاسخگو از مخزن مهسا: {len(passed_nodes)}")
     
     # مرتب‌سازی بر اساس کمترین پینگ
     passed_nodes.sort(key=lambda x: x[2])
     
-    # انتخاب ۱۰ نود با هاست‌های کاملاً غیرتکراری
+    # انتخاب متنوع از ساب‌نت‌های مختلف (/24) تا همه لوکیشن‌های مخزن مهسا پوشش داده شوند
     selected = []
     used_hosts = set()
-    for conf_base, host, pms in passed_nodes:
+    subnet_counts = {}
+    for full_conf, host, pms in passed_nodes:
         if host and host not in used_hosts:
-            used_hosts.add(host)
-            selected.append((conf_base, pms))
-            if len(selected) >= target_count:
-                break
+            subnet = ".".join(host.split(".")[:3]) if host.count(".") == 3 else host
+            if subnet_counts.get(subnet, 0) < 2:
+                used_hosts.add(host)
+                subnet_counts[subnet] = subnet_counts.get(subnet, 0) + 1
+                selected.append((full_conf, host, pms))
+                if len(selected) >= target_count:
+                    break
                 
     if len(selected) < target_count:
-        for conf_base, host, pms in passed_nodes:
-            if (conf_base, pms) not in selected:
-                selected.append((conf_base, pms))
+        for full_conf, host, pms in passed_nodes:
+            if host and host not in used_hosts:
+                used_hosts.add(host)
+                selected.append((full_conf, host, pms))
+                if len(selected) >= target_count:
+                    break
+
+    if len(selected) < target_count:
+        for full_conf, host, pms in passed_nodes:
+            if (full_conf, host, pms) not in selected:
+                selected.append((full_conf, host, pms))
                 if len(selected) >= target_count:
                     break
                     
     combined = selected
     
     # ═══════════════════════════════════════════════════════════════
-    # فاز ۶: فرمت‌بندی نهایی با پرچم و عنوان تمیز
+    # فاز ۶: تشخیص لوکیشن واقعی (پرچم + نام کشور) و فرمت‌بندی با تگ @muntivpn
     # ═══════════════════════════════════════════════════════════════
-    EURO_COUNTRIES = ["DE", "NL", "FI", "TR", "FR", "GB", "SE", "AT", "CH", "PL"]
+    COUNTRY_MAP = {
+        "DE": ("🇩🇪", "Germany"),
+        "US": ("🇺🇸", "United States"),
+        "NL": ("🇳🇱", "Netherlands"),
+        "FI": ("🇫🇮", "Finland"),
+        "FR": ("🇫🇷", "France"),
+        "GB": ("🇬🇧", "United Kingdom"),
+        "UK": ("🇬🇧", "United Kingdom"),
+        "SE": ("🇸🇪", "Sweden"),
+        "AT": ("🇦🇹", "Austria"),
+        "CH": ("🇨🇭", "Switzerland"),
+        "PL": ("🇵🇱", "Poland"),
+        "TR": ("🇹🇷", "Turkey"),
+        "CA": ("🇨🇦", "Canada"),
+        "SG": ("🇸🇬", "Singapore"),
+        "JP": ("🇯🇵", "Japan"),
+        "KR": ("🇰🇷", "South Korea"),
+        "ZA": ("🇿🇦", "South Africa"),
+        "IT": ("🇮🇹", "Italy"),
+        "ES": ("🇪🇸", "Spain"),
+        "AE": ("🇦🇪", "UAE"),
+    }
+    FALLBACK_LOCS = [
+        ("🇩🇪", "Germany"),
+        ("🇳🇱", "Netherlands"),
+        ("🇫🇮", "Finland"),
+        ("🇺🇸", "United States"),
+        ("🇫🇷", "France"),
+        ("🇬🇧", "United Kingdom"),
+        ("🇸🇪", "Sweden"),
+        ("🇦🇹", "Austria"),
+        ("🇨🇭", "Switzerland"),
+        ("🇵🇱", "Poland"),
+    ]
     
+    # استعلام سریع GeoIP برای آی‌پی‌های منتخب
+    host_to_loc = {}
+    try:
+        unique_hosts = list({h for _, h, _ in combined if h})
+        if unique_hosts:
+            req_geo = urllib.request.Request(
+                "http://ip-api.com/batch?fields=query,countryCode,country",
+                data=json.dumps(unique_hosts[:50]).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req_geo, timeout=4) as gresp:
+                gdata = json.loads(gresp.read().decode("utf-8", errors="ignore"))
+                for item in gdata:
+                    q = str(item.get("query", "")).lower()
+                    cc = str(item.get("countryCode", "")).upper()
+                    cname = str(item.get("country", ""))
+                    if cc in COUNTRY_MAP:
+                        host_to_loc[q] = COUNTRY_MAP[cc]
+                    elif len(cc) == 2 and cname:
+                        flag_chr = chr(0x1F1E6 + ord(cc[0]) - ord('A')) + chr(0x1F1E6 + ord(cc[1]) - ord('A'))
+                        host_to_loc[q] = (flag_chr, cname)
+    except Exception:
+        pass
+
+    clean_tag = "@muntivpn"
     final_confs = []
-    for idx, (conf_base, pms) in enumerate(combined[:target_count], 1):
-        cc = EURO_COUNTRIES[(idx - 1) % len(EURO_COUNTRIES)]
-        clean_base = conf_base.split("#")[0].strip()
-        icon = "🚀" if ("hy2" in clean_base or "tuic" in clean_base) else "⚡"
-        remark = f"VIP-{idx:02d} [{cc}] {icon} {tag}"
-        final_confs.append(f"{clean_base}#{remark}")
+    loc_counts = {}
+    
+    for idx, (full_conf, host, pms) in enumerate(combined[:target_count], 1):
+        flag, loc_name = host_to_loc.get(host, FALLBACK_LOCS[(idx - 1) % len(FALLBACK_LOCS)])
+        loc_counts[loc_name] = loc_counts.get(loc_name, 0) + 1
+        num_suffix = f" {loc_counts[loc_name]}" if sum(1 for _, h2, _ in combined[:target_count] if host_to_loc.get(h2, (None, None))[1] == loc_name) > 1 else ""
+        remark = f"{flag} {loc_name}{num_suffix} | {clean_tag}"
+        
+        if full_conf.lower().startswith("vmess://"):
+            try:
+                b64_part = full_conf[8:].split("#")[0]
+                obj = json.loads(decode_base64_safe(b64_part))
+                obj["ps"] = remark
+                new_b64 = base64.b64encode(json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).decode("utf-8")
+                final_confs.append(f"vmess://{new_b64}")
+            except Exception:
+                clean_base = full_conf.split("#")[0].strip()
+                final_confs.append(f"{clean_base}#{remark}")
+        else:
+            clean_base = full_conf.split("#")[0].strip()
+            final_confs.append(f"{clean_base}#{remark}")
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")
-        return "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+        return "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
     
-    plain_content = "\n".join(final_confs) + "\n"
+    # هدر رسمی سابسکریپشن با نام @muntivpn (Base64("@muntivpn") = "QG11bnRpdnBu")
+    sub_headers = [
+        "#profile-title: base64:QG11bnRpdnBu",
+        "#profile-update-interval: 1",
+        "#subscription-userinfo: upload=0; download=0; total=10737418240000; expire=0",
+    ]
+    plain_content = "\n".join(sub_headers + final_confs) + "\n"
     b64_content = base64.b64encode(plain_content.encode("utf-8")).decode("utf-8")
     
     # ذخیره محلی
@@ -458,7 +534,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     
     stealth_repo = "mahdi78013/static-web-content"
     stealth_file = "assets/d9f3a7c2.dat"
-    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+    cdn_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
     
     def _publish_to_github():
         if not token:
@@ -549,7 +625,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     except Exception as e:
         logger.warning(f"Publish error: {e}")
         
-    avg_ping = int(sum(p for _, p in combined) / max(len(combined), 1))
+    avg_ping = int(sum(p for _, _, p in combined) / max(len(combined), 1))
     logger.info(f"📊 میانگین پینگ {len(combined)} سرور منتخب: {avg_ping}ms")
     
     return cdn_url

@@ -133,12 +133,49 @@ def sanitize_url_parameters(url: str) -> str:
     except Exception:
         return url
 
+FLAG_TO_LOCATION = {
+    "🇩🇪": "Germany",
+    "🇺🇸": "United States",
+    "🇫🇮": "Finland",
+    "🇳🇱": "Netherlands",
+    "🇬🇧": "United Kingdom",
+    "🇫🇷": "France",
+    "🇨🇦": "Canada",
+    "🇹🇷": "Turkey",
+    "🇸🇪": "Sweden",
+    "🇸🇬": "Singapore",
+    "🇯🇵": "Japan",
+    "🇵🇱": "Poland",
+    "🇮🇹": "Italy",
+    "🇨🇭": "Switzerland",
+    "🇦🇹": "Austria",
+    "🇦🇺": "Australia",
+    "🇪🇸": "Spain",
+    "🇳🇴": "Norway",
+    "🇧🇪": "Belgium",
+    "🇷🇴": "Romania",
+    "🇧🇬": "Bulgaria",
+    "🇮🇪": "Ireland",
+    "🇺🇦": "Ukraine",
+    "🇰🇷": "South Korea",
+    "🇷🇺": "Russia",
+    "🇦🇪": "UAE",
+}
+
+def get_location_label(flag: str, tag: str = DEFAULT_TAG) -> str:
+    """ساخت برچسب استاندارد شامل پرچم، نام لوکیشن و تگ (@muntivpn)"""
+    loc_name = FLAG_TO_LOCATION.get(flag, "Germany")
+    clean_tag = tag.strip() if tag else "@muntivpn"
+    return f"{flag} {loc_name} | {clean_tag}"
+
 def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
     تغییر نام کانفیگ VMess با حفظ ۱۰۰٪ پارامترهای اصلی شبکه و اتصال سرور
     خروجی: (کانفیگ جدید, پرچم, پروتکل)
     """
     raw_b64 = config[len("vmess://"):]
+    if "#" in raw_b64:
+        raw_b64 = raw_b64.split("#", 1)[0]
     decoded_json_str = decode_base64_safe(raw_b64)
     
     try:
@@ -149,9 +186,8 @@ def modify_vmess(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     original_ps = str(data.get("ps", ""))
     flag = get_or_create_flag(original_ps)
     
-    # حفظ دقیق تمام پارامترهای سرور (آی‌پی، پورت، آی‌دی، رمزنگاری، وب‌سوکت، هاست و غیره)
-    new_ps = f"{flag} {tag}"
-    data["ps"] = new_ps
+    # حفظ دقیق تمام پارامترهای سرور و قرار دادن نام لوکیشن + تگ
+    data["ps"] = get_location_label(flag, tag)
     
     new_json_str = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     new_b64 = encode_base64_safe(new_json_str)
@@ -165,7 +201,7 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
     """
     proto_name = protocol_prefix.replace("://", "")
     
-    # تفکیک بخش آدرس اصلی و هش نام
+    # تفکیک بخش آدرس اصلی و هش نام بدون دستکاری پارامترهای اصلی مخزن مهسا
     if "#" in config:
         base_part, raw_remark = config.split("#", 1)
         original_remark = urllib.parse.unquote(raw_remark)
@@ -174,18 +210,15 @@ def modify_url_style_config(config: str, protocol_prefix: str, tag: str = DEFAUL
         original_remark = ""
         
     flag = get_or_create_flag(original_remark)
-    new_remark = f"{flag} {tag}"
+    new_remark = get_location_label(flag, tag)
     
-    # استانداردسازی پارامترهای Reality و TLS
-    sanitized_base = sanitize_url_parameters(base_part)
-    
-    # بازسازی کانفیگ بدون دستکاری پارامترهای اتصال، PBK یا SNI سرور
-    new_config = f"{sanitized_base}#{new_remark}"
+    # بازسازی کانفیگ بدون هیچ تغییری در پارامترهای اتصال سرور
+    new_config = f"{base_part.strip()}#{new_remark}"
     return new_config, flag, proto_name
 
 def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str]:
     """
-    تشخیص پروتکل، حفظ سلامت اتصال و تغییر نام به همراه پرچم و تگ کانال
+    تشخیص پروتکل، حفظ سلامت اتصال و تغییر نام به همراه پرچم، نام لوکیشن و تگ کانال
     خروجی: (کانفیگ_اصلاح_شده, پرچم, نام_پروتکل)
     """
     config = config.strip()
@@ -199,11 +232,12 @@ def transform_config(config: str, tag: str = DEFAULT_TAG) -> Tuple[str, str, str
             
     # اگر پروتکل ناشناخته باشد
     flag = random.choice(DEFAULT_FLAGS)
+    label = get_location_label(flag, tag)
     if "#" in config:
         base_part, _ = config.split("#", 1)
-        return f"{base_part}#{flag} {tag}", flag, "custom"
+        return f"{base_part}#{label}", flag, "custom"
     
-    return f"{config}#{flag} {tag}", flag, "custom"
+    return f"{config}#{label}", flag, "custom"
 
 def detect_operator_for_config(raw_config: str, index: int = 0) -> str:
     """

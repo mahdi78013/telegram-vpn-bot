@@ -414,18 +414,25 @@ async def verify_config_stability_3x(
     return PingResult(is_online=True, ping_ms=avg_ping, ttfb_ms=avg_ttfb)
 
 async def ping_configs_batch(
-    configs: List[str], 
-    concurrency: int = 30
-) -> List[Tuple[str, PingResult]]:
+    configs: List[Any], 
+    concurrency: int = 30,
+    timeout: float = 2.5
+) -> List[Any]:
     """
-    تست همزمان دسته‌ای از کانفیگ‌ها با استفاده از Semaphore
+    تست همزمان دسته‌ای از کانفیگ‌ها (پشتیبانی از لیست رشته‌ها و لیست دیکشنری‌های دیتابیس)
     """
     semaphore = asyncio.Semaphore(concurrency)
     
-    async def worker(conf: str) -> Tuple[str, PingResult]:
+    async def worker(item: Any) -> Any:
         async with semaphore:
-            res = await ping_single_config(conf)
-            return conf, res
+            if isinstance(item, dict):
+                raw_conf = item.get("raw_config", "")
+                cid = item.get("id", 0)
+                res = await ping_single_config(raw_conf, timeout=timeout, connect_timeout=min(timeout, 1.8))
+                return (cid, res.is_online, res.ping_ms if res.is_online else -1)
+            else:
+                res = await ping_single_config(str(item), timeout=timeout, connect_timeout=min(timeout, 1.8))
+                return (str(item), res)
             
     tasks = [worker(c) for c in configs]
     results = await asyncio.gather(*tasks, return_exceptions=False)

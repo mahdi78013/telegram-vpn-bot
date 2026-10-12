@@ -53,35 +53,37 @@ def format_batch_channel_post(
     channel_tag: str
 ) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """
-    ساخت قالب پست گروهی/دسته‌ای کانال بر اساس تصویر و استاندارد درخواستی
-    شامل چند سرور با پرچم، پروتکل، پینگ و کادر کپی جداگانه
+    ساخت قالب پست گروهی/دسته‌ای کانال شامل سرورهای مخزن مهسا با نام لوکیشن و تگ @muntivpn
     """
+    from parser import FLAG_TO_LOCATION
     tag_clean = channel_tag if channel_tag.startswith("@") else f"@{channel_tag}"
-    channel_username = tag_clean.replace("@", "")
-    channel_url = f"https://t.me/{channel_username}"
     
     top_proxies = get_current_top_proxies(3)
     proxies_section = format_proxies_text(top_proxies)
+    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
     
     if len(items) == 1:
         it = items[0]
         escaped_config = html.escape(it.get("config", ""))
-        flag = it.get("flag", "🌐")
+        flag = it.get("flag", "🇩🇪")
+        loc_name = FLAG_TO_LOCATION.get(flag, "Germany")
         ping = it.get("ping", 0)
         operator = it.get("operator") or detect_operator_for_config(it.get("config", ""), 0)
         ping_line = f"⚡ <b>پینگ پایدار :</b> <code>{ping}ms</code>\n" if ping > 0 else ""
         text = (
             f"🔮 <b>اینترنت آزاد (Free Vpn)</b>\n\n"
             f"👑 <b>کانفیگ فیلترشکن</b>\n"
-            f"📍 <b>موقعیت سرور :</b> {flag}\n"
+            f"📍 <b>موقعیت سرور :</b> {flag} {loc_name}\n"
             f"📶 <b>اپراتور مناسب :</b> {operator}\n"
             f"🔌 <b>وضعیت :</b> متصل تا زمان فیلتر\n"
             f"{ping_line}"
             f"-----------------\n\n"
             f"<pre><code class=\"language-copy\">{escaped_config}</code></pre>\n\n"
+            f"🌐 <b>لینک سابسکریپشن (<code>@muntivpn</code>):</b>\n"
+            f"<code>{sub_url}</code>\n\n"
             f"-----------------\n"
             f"{proxies_section}\n\n"
-            f"👑 دریافت 1 گیگ کانفیگ رایگان روزانه « <a href=\"https://t.me/GozarXbot?start=748538264\">دریافت</a> »\n\n"
+            f"👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@muntivpn</a>\n"
             f"✅ {tag_clean}"
         )
         return text, None
@@ -94,19 +96,22 @@ def format_batch_channel_post(
     ]
     
     for idx, it in enumerate(items, 1):
-        flag = it.get("flag", "🌐")
+        flag = it.get("flag", "🇩🇪")
+        loc_name = FLAG_TO_LOCATION.get(flag, "Germany")
         proto = it.get("proto", "VLESS").upper()
         ping = it.get("ping", 0)
         operator = it.get("operator") or detect_operator_for_config(it.get("config", ""), idx - 1)
         ping_str = f" | ⚡ <code>{ping}ms</code>" if ping > 0 else ""
         escaped_conf = html.escape(it.get("config", ""))
         
-        lines.append(f"\n📍 <b>سرور {idx} :</b> {flag} <b>{proto}</b>{ping_str} | {operator}")
+        lines.append(f"\n📍 <b>سرور {idx} :</b> {flag} <b>{loc_name} ({proto})</b>{ping_str} | {operator}")
         lines.append(f"<pre><code class=\"language-copy\">{escaped_conf}</code></pre>")
         
+    lines.append("\n🌐 <b>لینک سابسکریپشن یکپارچه (<code>@muntivpn</code>):</b>")
+    lines.append(f"<code>{sub_url}</code>")
     lines.append("\n-----------------")
     lines.append(f"{proxies_section}\n")
-    lines.append("👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@Muntivpn</a>\n")
+    lines.append("👑 کانال رسمی ما: <a href=\"https://t.me/muntivpn\">@muntivpn</a>\n")
     lines.append(f"✅ {tag_clean}")
     
     return "\n".join(lines), None

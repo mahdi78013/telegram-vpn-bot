@@ -507,7 +507,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     
     if not final_confs:
         logger.error("❌ هیچ سروری برای سابسکریپشن یافت نشد!")
-        return "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
+        return "https://da.gd/muntivpn#@muntivpn"
     
     # هدر رسمی سابسکریپشن با نام @muntivpn (Base64("@muntivpn") = "QG11bnRpdnBu")
     sub_headers = [
@@ -534,7 +534,7 @@ async def generate_and_publish_universal_sub(tag: str = "@muntivpn", target_coun
     
     stealth_repo = "mahdi78013/static-web-content"
     stealth_file = "assets/d9f3a7c2.dat"
-    cdn_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
+    cdn_url = "https://da.gd/muntivpn#@muntivpn"
     
     def _publish_to_github():
         if not token:

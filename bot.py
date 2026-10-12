@@ -760,8 +760,8 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer("🌐 لینک سابسکریپشن @muntivpn آماده شد!")
     
-    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
-    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat#@muntivpn"
+    sub_url = "https://da.gd/muntivpn#@muntivpn"
+    cdn_url = "https://tinyurl.com/28tux7v2#@muntivpn"
     
     msg = (
         "🌐 <b>لینک سابسکریپشن اختصاصی <code>@muntivpn</code></b>\n\n"

@@ -413,19 +413,29 @@ class ConfigDeliveryEngine:
         """
         ctx = context or NetworkContext()
         # ۱. ابتدا استخر نودهای سالم را دریافت می‌کنیم
-        pool = registry.get_l2_pool(min_score=30.0, carrier=ctx.carrier)
+        pool = registry.get_l2_pool(min_score=25.0, carrier=ctx.carrier)
         if len(pool) < count:
             # دریافت از دیتابیس
-            db_candidates = await self._fetch_l3_candidates(context=ctx, limit=count * 4)
+            db_candidates = await self._fetch_l3_candidates(context=ctx, limit=max(15, count * 4))
             if db_candidates:
                 probed = await self.probe_candidates_parallel(db_candidates, ctx)
                 for p in probed:
-                    if p.score > 25.0:
-                        registry.put_l1(ctx, p)
-            pool = registry.get_l2_pool(min_score=25.0, carrier=ctx.carrier)
+                    if p.score > 20.0:
+                        registry.put_l2_pool(p)
+            pool = registry.get_l2_pool(min_score=20.0, carrier=ctx.carrier)
+
+        if len(pool) < count:
+            # دریافت زنده از مخزن رسمی مهسا
+            live_candidates = await self._fetch_live_candidates(context=ctx, limit=30)
+            if live_candidates:
+                probed_live = await self.probe_candidates_parallel(live_candidates[:15], ctx)
+                for p in probed_live:
+                    if p.score > 15.0:
+                        registry.put_l2_pool(p)
+            pool = registry.get_l2_pool(min_score=15.0, carrier=ctx.carrier)
 
         results = []
-        seen_protos = set()
+        seen_configs = set()
         
         # مرتب‌سازی بر اساس امتیاز
         pool.sort(key=lambda x: x.score, reverse=True)
@@ -433,6 +443,10 @@ class ConfigDeliveryEngine:
         for node in pool:
             if len(results) >= count:
                 break
+            base_sig = node.raw_config.split("#")[0].strip()
+            if base_sig in seen_configs:
+                continue
+            seen_configs.add(base_sig)
             transformed, flag, proto = transform_config(node.raw_config, tag=tag)
             results.append({
                 "id": node.id,
@@ -445,7 +459,7 @@ class ConfigDeliveryEngine:
             })
 
         # در صورت کمبود کاندیدا، از کانفیگ‌های موجود یا L4 استفاده می‌کنیم
-        if len(results) < count:
+        if not results:
             single = await self.get_best_config(ctx, tag=tag)
             results.append({
                 "id": single.get("node_id", 0),
@@ -480,49 +494,16 @@ class ConfigDeliveryEngine:
             import aiosqlite
             ctx = context or NetworkContext()
             
-            carrier_where = ""
-            if ctx.carrier == "mtn":
-                carrier_where = """
-                AND (
-                    raw_config LIKE '%security=reality%'
-                    OR raw_config LIKE '%hysteria2://%'
-                    OR raw_config LIKE '%hy2://%'
-                    OR raw_config LIKE '%tuic://%'
-                    OR raw_config LIKE '%mtn%'
-                    OR raw_config LIKE '%irancell%'
-                    OR raw_config LIKE '%ایرانسل%'
-                    OR (protocol = 'vless' AND raw_config LIKE '%security=tls%')
-                )
-                """
-            elif ctx.carrier == "mci":
-                carrier_where = """
-                AND (
-                    raw_config LIKE '%security=reality%'
-                    OR raw_config LIKE '%hysteria2://%'
-                    OR raw_config LIKE '%hy2://%'
-                    OR raw_config LIKE '%mci%'
-                    OR raw_config LIKE '%hamrah%'
-                    OR raw_config LIKE '%همراه%'
-                    OR (protocol = 'vless' AND raw_config LIKE '%security=tls%')
-                    OR (protocol = 'vmess' AND raw_config LIKE '%tls%')
-                )
-                """
-                
-            query = f"""
+            query = """
                 SELECT id, raw_config, protocol, ping_ms, last_ping_status
                 FROM configs
                 WHERE is_active = 1 AND (last_ping_status != 0 OR last_ping_status IS NULL)
-                {carrier_where}
                 ORDER BY 
                     CASE 
-                        WHEN '{ctx.carrier}' = 'mtn' AND (raw_config LIKE '%mtn%' OR raw_config LIKE '%irancell%' OR raw_config LIKE '%ایرانسل%') THEN 0
-                        WHEN '{ctx.carrier}' = 'mci' AND (raw_config LIKE '%mci%' OR raw_config LIKE '%hamrah%' OR raw_config LIKE '%همراه%') THEN 0
-                        WHEN raw_config LIKE '%security=reality%' THEN 1
-                        WHEN raw_config LIKE '%hy2://%' OR raw_config LIKE '%hysteria2://%' THEN 2
-                        WHEN last_ping_status = 1 THEN 3
-                        ELSE 4
+                        WHEN last_ping_status = 1 THEN 0
+                        ELSE 1
                     END,
-                    ping_ms ASC
+                    CASE WHEN ping_ms > 0 THEN ping_ms ELSE 9999 END ASC
                 LIMIT ?
             """
             
@@ -536,7 +517,7 @@ class ConfigDeliveryEngine:
                             id=r["id"],
                             raw_config=r["raw_config"],
                             protocol=r["protocol"],
-                            ping_ms=r["ping_ms"] if r["ping_ms"] > 0 else 180,
+                            ping_ms=r["ping_ms"] if r["ping_ms"] > 0 else 150,
                             health_state=NodeHealth.HEALTHY if r["last_ping_status"] == 1 else NodeHealth.UNSTABLE
                         )
                         candidates.append(c)
@@ -545,52 +526,42 @@ class ConfigDeliveryEngine:
             logger.debug(f"Error fetching L3 candidates: {e}")
             return []
 
-    async def _fetch_live_candidates(self, context: Optional[NetworkContext] = None, limit: int = 20) -> List[CandidateNode]:
-        """دریافت زنده از منابع سابسکریپشن اختصاصی متناسب با اپراتور"""
+    async def _fetch_live_candidates(self, context: Optional[NetworkContext] = None, limit: int = 30) -> List[CandidateNode]:
+        """دریافت زنده و مستقیم فقط از مخزن رسمی مهسا"""
         try:
-            from harvester import fetch_source_content, DEFAULT_SUBSCRIPTION_SOURCES
+            from harvester import fetch_source_content
             from parser import extract_configs_from_text
-            ctx = context or NetworkContext()
             
-            # انتخاب سورس بر اساس اپراتور
-            if ctx.carrier == "mtn":
-                urls = [
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
-                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
-                    "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
-                ]
-            elif ctx.carrier == "mci":
-                urls = [
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt",
-                    "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
-                ]
-            else:
-                urls = [
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
-                    "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
-                    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt"
-                ]
+            urls = [
+                "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt",
+                "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt",
+                "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_2.txt",
+                "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt"
+            ]
             
+            all_configs = []
             for u in urls:
                 content = await fetch_source_content(u, timeout=ENGINE_CONNECT_TIMEOUT + ENGINE_READ_TIMEOUT)
                 if content:
-                    configs = extract_configs_from_text(content)
-                    if configs:
-                        candidates = []
-                        for idx, conf in enumerate(configs[:limit]):
-                            proto = conf.split("://", 1)[0] if "://" in conf else "custom"
-                            node = CandidateNode(
-                                id=100000 + idx + int(time.time() % 10000),
-                                raw_config=conf,
-                                protocol=proto,
-                                ping_ms=120,
-                                ttfb_ms=120,
-                                health_state=NodeHealth.HEALTHY
-                            )
-                            registry._l2_pool[node.id] = node
-                            candidates.append(node)
-                        return candidates
+                    confs = extract_configs_from_text(content)
+                    for c in confs:
+                        if c not in all_configs:
+                            all_configs.append(c)
+                            
+            candidates = []
+            for idx, conf in enumerate(all_configs[:limit]):
+                proto = conf.split("://", 1)[0] if "://" in conf else "custom"
+                node = CandidateNode(
+                    id=100000 + idx + int(time.time() % 10000),
+                    raw_config=conf,
+                    protocol=proto,
+                    ping_ms=130,
+                    ttfb_ms=130,
+                    health_state=NodeHealth.HEALTHY
+                )
+                registry._l2_pool[node.id] = node
+                candidates.append(node)
+            return candidates
         except Exception as e:
             logger.debug(f"Error fetching live candidates: {e}")
         return []

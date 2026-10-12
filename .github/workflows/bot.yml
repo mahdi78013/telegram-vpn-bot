@@ -36,8 +36,8 @@ jobs:
 
       - name: Run Bot
         env:
-          BOT_TOKEN: 8857298539:AAED9eWCaxgND3hjvefm4z-zEdsO4wHwFEc
-          ADMIN_ID: 748538264
+          BOT_TOKEN: 8752099998:AAFQIn-6PpIihHtw2Yu6jsOwrp2lGTkgDy4
+          ADMIN_ID: 8676453621
           DEFAULT_TAG: '@muntivpn'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

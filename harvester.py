@@ -6,7 +6,7 @@ import aiosqlite
 from typing import List, Dict, Any, Optional
 
 from config import DB_PATH, DEFAULT_SUBSCRIPTION_INTERVAL
-from parser import extract_configs_from_text, decode_base64_safe
+from parser import extract_configs_from_text, decode_base64_safe, get_config_core_signature
 from tester import ping_configs_batch
 from node_registry import CandidateNode, NodeHealth, registry
 
@@ -14,28 +14,20 @@ logger = logging.getLogger("CloudHarvester")
 
 DEFAULT_SUBSCRIPTION_SOURCES = [
     {
-        "name": "MahsaNet MTN Dedicated VLESS Reality",
+        "name": "MahsaNet MTN Sub 1",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt"
     },
     {
-        "name": "MahsaNet MCI Dedicated VLESS Reality",
+        "name": "MahsaNet MTN Sub 2",
+        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_2.txt"
+    },
+    {
+        "name": "MahsaNet MCI Sub 1",
         "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt"
     },
     {
-        "name": "Epodonios VLESS Reality Stream (2200+ Reality)",
-        "url": "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt"
-    },
-    {
-        "name": "Epodonios Global All Configs",
-        "url": "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"
-    },
-    {
-        "name": "ALIILAPRO Live V2Ray Stream",
-        "url": "https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt"
-    },
-    {
-        "name": "FreeFQ Live Public Pool",
-        "url": "https://raw.githubusercontent.com/freefq/free/master/v2"
+        "name": "MahsaNet Segment Sub",
+        "url": "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/segment/test_sub.txt"
     }
 ]
 
@@ -108,20 +100,24 @@ async def harvest_single_source(src_id: int, name: str, url: str) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         for conf, ping_res in tested_batch:
             proto = conf.split("://", 1)[0].lower() if "://" in conf else "custom"
+            core_sig = get_config_core_signature(conf)
+            if not core_sig:
+                continue
             is_active = 1 if ping_res.is_online else 0
             ping_ms = ping_res.ping_ms if ping_res.is_online else -1
             status_code = 1 if ping_res.is_online else 0
             
             # ذخیره در دیتابیس
             cursor = await db.execute("""
-                INSERT INTO configs (raw_config, protocol, is_active, ping_ms, last_ping_status, last_checked)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(raw_config) DO UPDATE SET
+                INSERT INTO configs (raw_config, core_signature, protocol, is_active, ping_ms, last_ping_status, last_ping_time)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(core_signature) DO UPDATE SET
+                    raw_config = excluded.raw_config,
                     is_active = excluded.is_active,
                     ping_ms = excluded.ping_ms,
                     last_ping_status = excluded.last_ping_status,
-                    last_checked = CURRENT_TIMESTAMP
-            """, (conf, proto, is_active, ping_ms, status_code))
+                    last_ping_time = CURRENT_TIMESTAMP
+            """, (conf, core_sig, proto, is_active, ping_ms, status_code))
             
             # ثبت در کش و استخر نودهای زنده
             if ping_res.is_online:
@@ -187,12 +183,12 @@ async def start_harvester_background_task(interval_seconds: int = 1800):
         await asyncio.sleep(interval_seconds)
 
 async def harvest_and_store_online_configs(sources: Optional[List[str]] = None, instant_test_count: int = 100) -> Dict[str, Any]:
-    """دریافت فوری و همزمان کانفیگ‌ها از منابع جهت پاسخگویی به درخواست‌های منوی بات"""
+    """دریافت فوری و همزمان کانفیگ‌ها از مخزن مهسا جهت پاسخگویی به درخواست‌های منوی بات"""
     await init_sources_table()
     total_fetched = 0
     total_online = 0
     
-    source_list = sources if sources else [s["url"] for s in DEFAULT_SUBSCRIPTION_SOURCES]
+    source_list = [s["url"] for s in DEFAULT_SUBSCRIPTION_SOURCES]
     
     for url in source_list:
         content = await fetch_source_content(url)
@@ -204,18 +200,22 @@ async def harvest_and_store_online_configs(sources: Optional[List[str]] = None, 
                 async with aiosqlite.connect(DB_PATH) as db:
                     for c, ping_res in tested:
                         proto = c.split("://", 1)[0].lower() if "://" in c else "custom"
+                        core_sig = get_config_core_signature(c)
+                        if not core_sig:
+                            continue
                         is_act = 1 if ping_res.is_online else 0
                         p_ms = ping_res.ping_ms if ping_res.is_online else -1
                         status = 1 if ping_res.is_online else 0
                         cursor = await db.execute("""
-                            INSERT INTO configs (raw_config, protocol, is_active, ping_ms, last_ping_status, last_checked)
-                            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                            ON CONFLICT(raw_config) DO UPDATE SET
+                            INSERT INTO configs (raw_config, core_signature, protocol, is_active, ping_ms, last_ping_status, last_ping_time)
+                            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(core_signature) DO UPDATE SET
+                                raw_config = excluded.raw_config,
                                 is_active = excluded.is_active,
                                 ping_ms = excluded.ping_ms,
                                 last_ping_status = excluded.last_ping_status,
-                                last_checked = CURRENT_TIMESTAMP
-                        """, (c, proto, is_act, p_ms, status))
+                                last_ping_time = CURRENT_TIMESTAMP
+                        """, (c, core_sig, proto, is_act, p_ms, status))
                         if ping_res.is_online:
                             total_online += 1
                             nid = cursor.lastrowid or int(time.time() * 1000) % 10000000

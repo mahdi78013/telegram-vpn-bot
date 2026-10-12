@@ -5,11 +5,11 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # توکن ربات تلگرام (از Environment Variables خوانده می‌شود)
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8752099998:AAFQIn-6PpIihHtw2Yu6jsOwrp2lGTkgDy4")
 
 # آیدی‌های عددی ادمین‌ها
-ADMIN_ID = int(os.getenv("ADMIN_ID", "748538264"))
-ADMIN_IDS = [748538264, 6615827337]
+ADMIN_ID = int(os.getenv("ADMIN_ID", "8676453621"))
+ADMIN_IDS = [8676453621, 748538264, 6615827337]
 
 # تگ پیش‌فرض برای نام سرورها
 DEFAULT_TAG = os.getenv("DEFAULT_TAG", "@muntivpn")

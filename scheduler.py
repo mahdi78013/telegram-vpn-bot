@@ -60,7 +60,7 @@ def format_batch_channel_post(
     
     top_proxies = get_current_top_proxies(3)
     proxies_section = format_proxies_text(top_proxies)
-    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
+    sub_url = "https://da.gd/muntivpn#@muntivpn"
     
     if len(items) == 1:
         it = items[0]

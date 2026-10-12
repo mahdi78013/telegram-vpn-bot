@@ -95,10 +95,9 @@ def is_admin(user_id: Any) -> bool:
     except Exception:
         return str(user_id).strip() in {"8676453621", "748538264", "6615827337"}
 
-def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "vip") -> InlineKeyboardMarkup:
-    """ساخت کیبورد اصلی شیک، کامل و بهینه برای ادمین"""
+def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: str = "mahsa") -> InlineKeyboardMarkup:
+    """ساخت کیبورد ساده و بهینه مخصوص ارسال از مخزن مهسا و سابسکریپشن @muntivpn"""
     toggle_send_text = "🟢 ارسال خودکار: [روشن]" if auto_send_on else "🔴 ارسال خودکار: [خاموش]"
-    source_toggle_text = "🚀 منبع: [نت ملی VIP]" if source_mode == "vip" else "🌐 منبع: [مهسا نت]"
     
     keyboard = [
         [
@@ -106,8 +105,12 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
             InlineKeyboardButton(f"📦 تعداد سرور: [{batch_size} عدد]", callback_data="btn_cycle_batch_size"),
         ],
         [
-            InlineKeyboardButton(f"📡 {source_toggle_text}", callback_data="btn_toggle_source_mode"),
-            InlineKeyboardButton("📊 تست پینگ زنده سرورها", callback_data="btn_ping_all"),
+            InlineKeyboardButton("📤 ارسال فوری از مخزن مهسا", callback_data="btn_test_send_admin"),
+            InlineKeyboardButton("📥 دریافت جدید از مخزن مهسا", callback_data="btn_harvest_now"),
+        ],
+        [
+            InlineKeyboardButton("🌐🔗 لینک سابسکریپشن (@muntivpn)", callback_data="btn_universal_sub"),
+            InlineKeyboardButton("🔄 نوسازی سابسکریپشن", callback_data="btn_force_refresh_sub"),
         ],
         [
             InlineKeyboardButton("📢 مدیریت کانال‌ها و گروه‌ها", callback_data="btn_manage_destinations"),
@@ -115,46 +118,23 @@ def build_main_keyboard(auto_send_on: bool, batch_size: str = "3", source_mode: 
         ],
         [
             InlineKeyboardButton("🏷️ تغییر تگ و نام سرورها", callback_data="btn_set_tag"),
-            InlineKeyboardButton("📤 ارسال تستی (مخزن مهسا نت)", callback_data="btn_test_send_admin"),
+            InlineKeyboardButton("📊 تست پینگ سرورها", callback_data="btn_ping_all"),
         ],
         [
-            InlineKeyboardButton("🌐🔗 لینک سابسکریپشن سراسری", callback_data="btn_universal_sub"),
-            InlineKeyboardButton("🛡️ تست ساخت اکانت WireGuard", callback_data="btn_get_wireguard"),
-        ],
-        [
-            InlineKeyboardButton("🔄 نوسازی فوری سابسکریپشن", callback_data="btn_force_refresh_sub"),
-            InlineKeyboardButton("⚙️ تنظیمات پیشرفته", callback_data="btn_advanced_settings"),
-        ],
-        [
-            InlineKeyboardButton("📈 داشبورد تله‌متری و سلامت", callback_data="btn_metrics_dashboard"),
-            InlineKeyboardButton("📱 منوی کاربران (تست اپراتورها)", callback_data="btn_user_menu_view"),
-        ],
-        [
-            InlineKeyboardButton("🔄 بروزرسانی منو", callback_data="btn_main_menu"),
+            InlineKeyboardButton("🔄 بروزرسانی پنل", callback_data="btn_main_menu"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
 def build_user_menu_keyboard() -> InlineKeyboardMarkup:
-    """منوی کاربران جهت دریافت سرور متناسب با اپراتور، سابسکریپشن و وایرگارد"""
+    """منوی ساده کاربران جهت دریافت لینک سابسکریپشن @muntivpn"""
     keyboard = [
         [
-            InlineKeyboardButton("📡 کانفیگ همراه اول", callback_data="btn_user_mci"),
-            InlineKeyboardButton("📱 کانفیگ ایرانسل", callback_data="btn_user_mtn"),
+            InlineKeyboardButton("🌐🔗 دریافت لینک سابسکریپشن (@muntivpn)", callback_data="btn_universal_sub")
         ],
         [
-            InlineKeyboardButton("📶 مخابرات / رایتل", callback_data="btn_user_wifi"),
-            InlineKeyboardButton("💎 پروکسی پرسرعت تلگرام", callback_data="btn_user_proxy"),
-        ],
-        [
-            InlineKeyboardButton("🛡️ دریافت کانفیگ اختصاصی وایرگارد (WireGuard)", callback_data="btn_get_wireguard"),
-        ],
-        [
-            InlineKeyboardButton("🌐🔗 دریافت لینک سابسکریپشن یکپارچه (همه اپراتورها)", callback_data="btn_universal_sub")
-        ],
-        [
-            InlineKeyboardButton("👑 عضویت در کانال Munti VPN", url="https://t.me/muntivpn")
+            InlineKeyboardButton("👑 عضویت در کانال @muntivpn", url="https://t.me/muntivpn")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -168,7 +148,7 @@ def build_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 async def get_main_menu_text() -> str:
-    """متن صفحه اصلی پنل مدیریت"""
+    """متن صفحه اصلی پنل مدیریت (مخصوص مخزن مهسا)"""
     settings = await get_all_settings()
     stats = await get_stats()
     destinations = await get_all_destinations()
@@ -176,18 +156,18 @@ async def get_main_menu_text() -> str:
     
     auto_send = "فعال 🟢" if settings.get("auto_send", "0") == "1" else "غیرفعال 🔴"
     batch_size = settings.get("batch_size", "3")
-    source_mode = settings.get("source_mode", "vip")
-    source_title = "🚀 نت ملی VIP (۲۴ ساعته ابری)" if source_mode == "vip" else "🌐 مخازن آنلاین (مهسا نت)"
     
     try:
         raw_min = settings.get("min_delay", str(DEFAULT_MIN_DELAY))
         min_d_sec = int(float(raw_min))
         if min_d_sec < 60:
             delay_str = f"هر <code>{min_d_sec}</code> ثانیه یکبار"
+        elif min_d_sec >= 3600:
+            delay_str = f"هر <code>{min_d_sec // 3600}</code> ساعت یکبار"
         else:
             delay_str = f"هر <code>{min_d_sec // 60}</code> دقیقه یکبار"
     except Exception:
-        delay_str = "هر <code>1</code> دقیقه یکبار"
+        delay_str = "هر <code>8</code> ساعت یکبار"
         
     tag = settings.get("tag", DEFAULT_TAG)
     
@@ -195,21 +175,19 @@ async def get_main_menu_text() -> str:
     next_post_str = f"{countdown} ثانیه دیگر" if countdown is not None else "در حال تعلیق"
     
     text = (
-        "👑 <b>پنل مدیریت ربات خودکار ارسال VPN</b>\n\n"
+        "👑 <b>پنل مدیریت ربات خودکار ارسال VPN (مخزن مهسا)</b>\n\n"
         f"⚡ <b>وضعیت ارسال خودکار:</b> {auto_send}\n"
-        f"📡 <b>منبع ارسال کانال:</b> {source_title}\n"
-        f"📦 <b>تعداد سرور در هر پست:</b> <code>{batch_size}</code> عدد (دسته‌ای)\n"
+        "📡 <b>منبع ارسال:</b> 🌐 مخزن رسمی مهسا\n"
+        f"📦 <b>تعداد سرور در هر پست:</b> <code>{batch_size}</code> عدد\n"
         f"📢 <b>مقاصد فعال (کانال/گروه):</b> <code>{len(active_dests)}</code> مورد از <code>{len(destinations)}</code>\n"
         f"⏱️ <b>سرعت ارسال:</b> {delay_str}\n"
-        f"🏷️ <b>تگ سرورها:</b> <code>{html.escape(tag)}</code>\n"
+        f"🏷️ <b>تگ سرورها و ساب:</b> <code>{html.escape(tag)}</code>\n"
         f"⏳ <b>ارسال بعدی:</b> <code>{next_post_str}</code>\n\n"
-        "📊 <b>وضعیت سلامت سرورها:</b>\n"
+        "📊 <b>وضعیت سرورهای مخزن مهسا:</b>\n"
         f"• کل کانفیگ‌های موجود: <code>{stats.get('total_configs', 0)}</code> عدد\n"
         f"• سرورهای متصل و آنلاین: 🟢 <code>{stats.get('online_configs', 0)}</code> عدد\n"
-        f"• سرورهای قطع / فیلتر: 🔴 <code>{stats.get('offline_configs', 0)}</code> عدد\n"
-        f"• در صف تست اولیه: ⏳ <code>{stats.get('untested_configs', 0)}</code> عدد\n\n"
-        f"🔄 <b>آمار دور ارسال:</b> دور <code>{stats.get('current_cycle', 1)}</code> | ارسال تاریخچه: <code>{stats.get('total_lifetime_sent', 0)}</code> پست\n\n"
-        "👇 از گزینه‌های زیر جهت مدیریت استفاده کنید:"
+        f"• سرورهای قطع / فیلتر: 🔴 <code>{stats.get('offline_configs', 0)}</code> عدد\n\n"
+        "👇 از دکمه‌های زیر جهت ارسال و مدیریت استفاده کنید:"
     )
     return text
 
@@ -224,9 +202,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             first_name = html.escape(user.first_name or "کاربر")
             user_text = (
                 f"سلام {first_name} عزیز! 🌹\n\n"
-                "🔮 به سامانه هوشمند <b>Munti VPN</b> خوش آمدید.\n"
-                "⚡ سرورها و پروکسی‌های ما توسط <b>هوش مصنوعی</b> پایش می‌شوند و پینگ سبز دارند.\n\n"
-                "👇 <b>لطفاً اپراتور سیم‌کارت خود را انتخاب کنید:</b>"
+                "🔮 به ربات رسمی <b>@muntivpn</b> خوش آمدید.\n"
+                "👇 <b>جهت دریافت لینک سابسکریپشن پرسرعت روی دکمه زیر بزنید:</b>"
             )
 
             await update.message.reply_text(
@@ -239,10 +216,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settings = await get_all_settings()
         auto_send_on = settings.get("auto_send", "0") == "1"
         batch_size = settings.get("batch_size", "3")
-        source_mode = settings.get("source_mode", "vip")
         
         menu_text = await get_main_menu_text()
-        reply_markup = build_main_keyboard(auto_send_on, batch_size, source_mode)
+        reply_markup = build_main_keyboard(auto_send_on, batch_size, "mahsa")
         
         await update.message.reply_text(
             text=menu_text,
@@ -253,8 +229,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in cmd_start: {e}", exc_info=True)
         try:
             await update.message.reply_text(
-                "👑 <b>پنل مدیریت ربات Munti VPN</b>",
-                reply_markup=build_main_keyboard(True, "3", "vip"),
+                "👑 <b>پنل مدیریت ربات @muntivpn</b>",
+                reply_markup=build_main_keyboard(True, "3", "mahsa"),
                 parse_mode=ParseMode.HTML
             )
         except Exception:
@@ -780,20 +756,18 @@ async def cb_deliver_user_proxy(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال فوری لینک سابسکریپشن یکپارچه و دائمی (۱۰ سرور پینگ‌سبز) بدون فریز شدن ربات"""
+    """ارسال فوری لینک سابسکریپشن یکپارچه و دائمی با نام @muntivpn"""
     query = update.callback_query
-    await query.answer("🌐 لینک سابسکریپشن آماده شد!")
+    await query.answer("🌐 لینک سابسکریپشن @muntivpn آماده شد!")
     
-    tag = await get_setting("tag", DEFAULT_TAG)
-    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat"
-    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat"
+    sub_url = "https://raw.githubusercontent.com/mahdi78013/static-web-content/main/assets/d9f3a7c2.dat#@muntivpn"
+    cdn_url = "https://cdn.jsdelivr.net/gh/mahdi78013/static-web-content@main/assets/d9f3a7c2.dat#@muntivpn"
     
     msg = (
-        "🌐 <b>لینک سابسکریپشن اختصاصی (۱۰ سرور گلچین با پینگ سبز):</b>\n\n"
-        "🔮 <b>شامل ۱۰ سرور پرسرعت تست‌شده (آلمان، هلند، فنلاند، فرانسه و...):</b>\n"
-        "• 📱 بهینه‌شده برای ایرانسل (VLESS Reality)\n"
-        "• 📡 بهینه‌شده برای همراه اول (MCI Reality)\n"
-        "• 📶 مخابرات، رایتل و وای‌فای خانگی\n\n"
+        "🌐 <b>لینک سابسکریپشن اختصاصی <code>@muntivpn</code></b>\n\n"
+        "📌 <b>نام پروفایل ساب:</b> <code>@muntivpn</code>\n"
+        "🌍 <b>نام کانفیگ‌ها:</b> پرچم و نام لوکیشن کشورها + <code>@muntivpn</code>\n"
+        "⚡ <b>وضعیت:</b> گلچین سرورهای تست‌شده با پینگ سبز برای تمام اپراتورها\n\n"
         "👇 <b>لینک سابسکریپشن اصلی (روی کادر زیر بزنید تا کپی شود):</b>\n\n"
         f"<code>{sub_url}</code>\n\n"
         "-----------------\n"
@@ -803,7 +777,7 @@ async def cb_get_universal_sub(update: Update, context: ContextTypes.DEFAULT_TYP
         "💡 <b>نحوه استفاده در Hiddify و v2rayNG:</b>\n"
         "1️⃣ لینک اول را کپی کنید.\n"
         "2️⃣ در برنامه روی <b>+ (افزودن پروفایل)</b> بزنید و <b>افزودن از کلیپ‌بورد</b> را انتخاب کنید.\n\n"
-        f"✅ {tag}"
+        "✅ <b>@muntivpn</b>"
     )
     
     await query.message.reply_text(
